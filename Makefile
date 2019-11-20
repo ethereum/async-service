@@ -27,8 +27,8 @@ lint:
 	tox -elint
 
 lint-roll:
-	isort --recursive async_service tests
-	black async_service tests
+	isort --recursive async_service tests tests-asyncio tests-trio
+	black async_service tests tests-asyncio tests-trio
 	$(MAKE) lint
 
 test:
