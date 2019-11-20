@@ -1,7 +1,7 @@
-<PROJECT_NAME>
+async-service
 ==============================
 
-<SHORT_DESCRIPTION>
+Lifecycle management for async applications
 
 Contents
 --------
@@ -9,7 +9,7 @@ Contents
 .. toctree::
     :maxdepth: 3
 
-    <MODULE_NAME>
+    async_service
     releases
 
 

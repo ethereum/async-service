@@ -1,1 +1,1 @@
-<PYPI_NAME>[doc]
+async-service[doc]
