@@ -12,6 +12,7 @@ extras_require = {
         "tox>=2.9.1,<3",
     ],
     'lint': [
+        "black==19.3b",
         "flake8==3.4.1",
         "isort>=4.2.15,<5",
         "mypy==0.701",
@@ -54,7 +55,6 @@ setup(
     url='https://github.com/ethereum/async-service',
     include_package_data=True,
     install_requires=[
-        "eth-utils>=1,<2",
     ],
     python_requires='>=3.6, <4',
     extras_require=extras_require,
