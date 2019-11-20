@@ -7,6 +7,7 @@ from setuptools import (
 
 extras_require = {
     'test': [
+        "hypothesis==4.44.4",
         "pytest==5.3.0",
         "pytest-xdist",
         "tox>=2.9.1,<3",
@@ -19,9 +20,9 @@ extras_require = {
     ],
     'lint': [
         "black==19.3b",
-        "flake8==3.4.1",
+        "flake8==3.7.9",
         "isort>=4.2.15,<5",
-        "mypy==0.701",
+        "mypy==0.740",
         "pydocstyle>=3.0.0,<4",
     ],
     'doc': [
@@ -61,6 +62,7 @@ setup(
     url='https://github.com/ethereum/async-service',
     include_package_data=True,
     install_requires=[
+        "async-generator>=1.10,<2",
         "trio>=0.13,<14",
         "trio-typing>=0.3,<0.4",
     ],
