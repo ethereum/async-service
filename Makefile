@@ -28,6 +28,7 @@ lint:
 
 lint-roll:
 	isort --recursive async_service tests
+	black async_service tests
 	$(MAKE) lint
 
 test:
