@@ -11,6 +11,12 @@ extras_require = {
         "pytest-xdist",
         "tox>=2.9.1,<3",
     ],
+    'test-asyncio': [
+        "pytest-asyncio>=0.10.0,<0.11",
+    ],
+    'test-trio': [
+        "pytest-trio==0.5.2",
+    ],
     'lint': [
         "black==19.3b",
         "flake8==3.4.1",
@@ -55,6 +61,8 @@ setup(
     url='https://github.com/ethereum/async-service',
     include_package_data=True,
     install_requires=[
+        "trio>=0.13,<14",
+        "trio-typing>=0.3,<0.4",
     ],
     python_requires='>=3.6, <4',
     extras_require=extras_require,
