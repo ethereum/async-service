@@ -13,10 +13,6 @@ from .typing import EXC_INFO
 
 
 class TrioManager(BaseManager):
-    # A nursery for system tasks.  This nursery is cancelled in the event that
-    # the service is cancelled or exits.
-    _system_nursery: trio_typing.Nursery
-
     # A nursery for sub tasks and services.  This nursery is cancelled if the
     # service is cancelled but allowed to exit normally if the service exits.
     _task_nursery: trio_typing.Nursery
