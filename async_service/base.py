@@ -32,7 +32,7 @@ def as_service(service_fn: LogicFnType) -> Type[ServiceAPI]:
 
 
 class BaseManager(_InternalManagerAPI):
-    logger = logging.getLogger("p2p.service.Manager")
+    logger = logging.getLogger("async_service.Manager")
 
     _service: ServiceAPI
 
