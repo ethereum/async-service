@@ -190,6 +190,31 @@ async def test_trio_service_lifecycle_run_and_daemon_task_exit():
 
 
 @pytest.mark.trio
+async def test_multierror_in_run():
+    # This test should cause ServiceTest to raise a trio.MultiError containing two exceptions --
+    # one raised inside its run() method and another raised by the daemon task exiting early.
+    trigger_error = trio.Event()
+
+    class ServiceTest(Service):
+        async def run(self):
+            self.manager.run_daemon_task(self.daemon_task_fn)
+            await trio.sleep(0.1)  # Give a chance for our daemon task to be scheduled.
+            trigger_error.set()
+            raise RuntimeError("Exception inside Service.run()")
+
+        async def daemon_task_fn(self):
+            await trigger_error.wait()
+
+    with pytest.raises(trio.MultiError) as exc_info:
+        await TrioManager.run_service(ServiceTest())
+
+    exc = exc_info.value
+    assert len(exc.exceptions) == 2
+    assert isinstance(exc.exceptions[0], RuntimeError)
+    assert isinstance(exc.exceptions[1], DaemonTaskExit)
+
+
+@pytest.mark.trio
 async def test_trio_service_background_service_context_manager():
     service = WaitCancelledService()
 
