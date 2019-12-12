@@ -246,10 +246,11 @@ class AsyncioManager(BaseManager):
         current_task = asyncio.Task.current_task()
         if not _root and current_task not in self._service_task_dag:
             raise Exception(f"TODO: unknown task {current_task}")
+        if name is None:
+            name = repr(async_fn)
+
         task = asyncio.ensure_future(
-            self._run_and_manage_task(
-                async_fn, *args, daemon=daemon, name=name or repr(async_fn)
-            ),
+            self._run_and_manage_task(async_fn, *args, daemon=daemon, name=name),
             loop=self._loop,
         )
         self._service_task_dag[task] = []
@@ -260,7 +261,9 @@ class AsyncioManager(BaseManager):
         self, service: ServiceAPI, daemon: bool = False, name: str = None
     ) -> ManagerAPI:
         child_manager = type(self)(service, loop=self._loop)
-        self.run_task(child_manager.run, daemon=daemon, name=name or repr(service))
+        if name is None:
+            name = repr(service)
+        self.run_task(child_manager.run, daemon=daemon, name=name)
         return child_manager
 
 

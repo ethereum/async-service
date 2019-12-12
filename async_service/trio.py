@@ -215,10 +215,10 @@ class TrioManager(BaseManager):
         name: str = None,
     ) -> None:
 
+        if name is None:
+            name = repr(async_fn)
         self._task_nursery.start_soon(
-            functools.partial(
-                self._run_and_manage_task, daemon=daemon, name=name or repr(async_fn)
-            ),
+            functools.partial(self._run_and_manage_task, daemon=daemon, name=name),
             async_fn,
             *args,
             name=name,
@@ -228,7 +228,9 @@ class TrioManager(BaseManager):
         self, service: ServiceAPI, daemon: bool = False, name: str = None
     ) -> ManagerAPI:
         child_manager = type(self)(service)
-        self.run_task(child_manager.run, daemon=daemon, name=name or repr(service))
+        if name is None:
+            name = repr(service)
+        self.run_task(child_manager.run, daemon=daemon, name=name)
         return child_manager
 
 
