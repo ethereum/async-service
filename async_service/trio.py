@@ -16,14 +16,13 @@ from .typing import EXC_INFO
 class TrioManager(BaseManager):
     # A nursery for sub tasks and services.  This nursery is cancelled if the
     # service is cancelled but allowed to exit normally if the service exits.
-    _task_nursery: trio_typing.Nursery
+    _task_nursery: trio_typing.Nursery = None
 
     def __init__(self, service: ServiceAPI) -> None:
         super().__init__(service)
 
         # events
         self._started = trio.Event()
-        self._cancelled = trio.Event()
         self._stopping = trio.Event()
         self._finished = trio.Event()
 
@@ -33,20 +32,6 @@ class TrioManager(BaseManager):
     #
     # System Tasks
     #
-    # XXX: Can't we get rid of this and change cancel() to call
-    # self._task_nursery.cancel_scope.cancel?  Would that allow us to get rid of the system
-    # nursery as well? If we do that we could even get rid of the system nursery, no?
-    async def _handle_cancelled(self) -> None:
-        """
-        Handle cancellation of the task nursery.
-        """
-        self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
-        await self.wait_cancelled()
-        self.logger.debug(
-            "%s: _handle_cancelled triggering task nursery cancellation", self
-        )
-        self._task_nursery.cancel_scope.cancel()
-
     async def _handle_run(self) -> None:
         """
         Run and monitor the actual :meth:`ServiceAPI.run` method.
@@ -88,36 +73,25 @@ class TrioManager(BaseManager):
 
         async with self._run_lock:
             try:
-                async with trio.open_nursery() as system_nursery:
-                    try:
-                        async with trio.open_nursery() as task_nursery:
-                            self._task_nursery = task_nursery
+                async with trio.open_nursery() as task_nursery:
+                    self._task_nursery = task_nursery
 
-                            system_nursery.start_soon(self._handle_cancelled)
+                    task_nursery.start_soon(self._handle_run)
 
-                            task_nursery.start_soon(self._handle_run)
+                    self._started.set()
 
-                            self._started.set()
-
-                            # ***BLOCKING HERE***
-                            # The code flow will block here until the background tasks have
-                            # completed or cancellation occurs.
-                    except Exception:
-                        # Exceptions from any tasks spawned by our service will be caught by trio
-                        # and raised here, so we store them to report together with any others we
-                        # have already captured.
-                        self._errors.append(cast(EXC_INFO, sys.exc_info()))
-
-                    # signal that the service is stopping
-                    self._stopping.set()
-                    self.logger.debug("%s stopping", self)
-
-                    system_nursery.cancel_scope.cancel()
+                    # ***BLOCKING HERE***
+                    # The code flow will block here until the background tasks have
+                    # completed or cancellation occurs.
             except Exception:
-                # None of our tasks running in the system nursery are supposed to raise exceptions
-                # but in case they do we probably have a bug so we log that here and move on with
-                # usual service termination.
-                self.logger.error("Unexpected exception when running service", exc_info=True)
+                # Exceptions from any tasks spawned by our service will be caught by trio
+                # and raised here, so we store them to report together with any others we
+                # have already captured.
+                self._errors.append(cast(EXC_INFO, sys.exc_info()))
+
+            # signal that the service is stopping
+            self._stopping.set()
+            self.logger.debug("%s stopping", self)
 
         self._finished.set()
         self.logger.debug("%s finished", self)
@@ -140,7 +114,10 @@ class TrioManager(BaseManager):
 
     @property
     def is_cancelled(self) -> bool:
-        return self._cancelled.is_set()
+        if self._task_nursery is None:
+            return False
+        cancel_scope = self._task_nursery.cancel_scope
+        return cancel_scope.cancel_called or cancel_scope.cancelled_caught
 
     # XXX: ISTM this is unnecessary in TrioManager as nothing happens between the stopping and
     # finished states...
@@ -158,16 +135,13 @@ class TrioManager(BaseManager):
     def cancel(self) -> None:
         if not self.is_started:
             raise LifecycleError("Cannot cancel as service which was never started.")
-        self._cancelled.set()
+        self._task_nursery.cancel_scope.cancel()
 
     #
     # Wait API
     #
     async def wait_started(self) -> None:
         await self._started.wait()
-
-    async def wait_cancelled(self) -> None:
-        await self._cancelled.wait()
 
     async def wait_stopping(self) -> None:
         await self._stopping.wait()
