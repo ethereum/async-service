@@ -210,6 +210,7 @@ class AsyncioManager(BaseManager):
         daemon: bool,
         name: str,
     ) -> None:
+        self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
         try:
             await async_fn(*args)
         except asyncio.CancelledError:
