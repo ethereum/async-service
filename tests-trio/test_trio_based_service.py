@@ -48,12 +48,13 @@ async def do_service_lifecycle_check(
             # stage because a service is considered running until it is
             # finished.  Since it may be cancelled but still not finished we
             # can't know.
-            assert manager.is_stopping is True
-            assert manager.is_cancelled is True
-            # We cannot determine whether a service should be finished at this
+            # We also cannot determine whether a service should be finished at this
             # stage as it could have exited cleanly and is now finished or it
             # might be doing some cleanup after which it will register as being
-            # finished.
+            # finished, so we must check manager._stopping directly as the is_stopping property
+            # returns False if the service is already finished.
+            assert manager._stopping.is_set() is True
+            assert manager.is_cancelled is True
 
         with trio.fail_after(0.1):
             await manager.wait_finished()
@@ -164,6 +165,37 @@ async def test_trio_service_lifecycle_run_and_task_exception():
 
 
 @pytest.mark.trio
+async def test_sub_service_cancelled_when_parent_stops():
+    # This test runs a service that runs a sub-service that sleeps forever. When the parent exits,
+    # the sub-service should be cancelled as well.
+    @as_service
+    async def WaitForeverService(manager):
+        await manager.wait_finished()
+
+    sub_manager = TrioManager(WaitForeverService())
+
+    @as_service
+    async def ServiceTest(manager):
+        async def run_sub():
+            await sub_manager.run()
+
+        manager.run_task(run_sub)
+        await manager.wait_finished()
+
+    s = ServiceTest()
+    async with background_trio_service(s) as manager:
+        await trio.sleep(0.01)
+
+    assert not manager.is_running
+    assert manager.is_cancelled
+    assert manager.is_finished
+
+    assert not sub_manager.is_running
+    assert sub_manager.is_cancelled
+    assert sub_manager.is_finished
+
+
+@pytest.mark.trio
 async def test_trio_service_lifecycle_run_and_daemon_task_exit():
     trigger_error = trio.Event()
 
@@ -187,6 +219,32 @@ async def test_trio_service_lifecycle_run_and_daemon_task_exit():
         trigger_exit_condition_fn=trigger_error.set,
         should_be_cancelled=True,
     )
+
+
+@pytest.mark.trio
+async def test_multierror_in_run():
+    # This test should cause TrioManager.run() to explicitly raise a trio.MultiError containing
+    # two exceptions -- one raised inside its run() method and another raised by the daemon task
+    # exiting early.
+    trigger_error = trio.Event()
+
+    class ServiceTest(Service):
+        async def run(self):
+            self.manager.run_daemon_task(self.daemon_task_fn)
+            await trio.sleep(0.1)  # Give a chance for our daemon task to be scheduled.
+            trigger_error.set()
+            raise RuntimeError("Exception inside Service.run()")
+
+        async def daemon_task_fn(self):
+            await trigger_error.wait()
+
+    with pytest.raises(trio.MultiError) as exc_info:
+        await TrioManager.run_service(ServiceTest())
+
+    exc = exc_info.value
+    assert len(exc.exceptions) == 2
+    assert isinstance(exc.exceptions[0], RuntimeError)
+    assert isinstance(exc.exceptions[1], DaemonTaskExit)
 
 
 @pytest.mark.trio

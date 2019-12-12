@@ -132,7 +132,10 @@ class AsyncioManager(BaseManager):
                 # block here until all service tasks have finished
                 await self._wait_service_tasks()
             finally:
-                # signal that the service is stopping
+                # None of the statements above are supposed to raise exceptions (as they all rely
+                # on _run_and_manage_task() to swallow and store them in self._errors, but in case
+                # they do we probably have a bug so we just mark the service as stopping and
+                # return.
                 self._stopping.set()
                 self.logger.debug("%s stopping", self)
 
@@ -145,7 +148,9 @@ class AsyncioManager(BaseManager):
         self._finished.set()
         self.logger.debug("%s finished", self)
 
-        # If an error occured, re-raise it here
+        # Above we rely on run_task() and handle_cancelled()/handle_stopping() to run the
+        # service/tasks and swallow/collect exceptions so that they can be reported all together
+        # here.
         if self.did_error:
             raise MultiError(
                 tuple(

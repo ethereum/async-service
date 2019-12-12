@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from trio import MultiError
 
 from async_service import (
     AsyncioManager,
@@ -184,6 +185,33 @@ async def test_asyncio_service_lifecycle_run_and_daemon_task_exit():
         trigger_exit_condition_fn=trigger_error.set,
         should_be_cancelled=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_multierror_in_run():
+    # This test should cause ServiceTest to raise a trio.MultiError containing two exceptions --
+    # one raised inside its run() method and another raised by the daemon task exiting early.
+    trigger_error = asyncio.Event()
+
+    class ServiceTest(Service):
+        async def run(self):
+            self.manager.run_daemon_task(self.daemon_task_fn)
+            await asyncio.sleep(
+                0.1
+            )  # Give a chance for our daemon task to be scheduled.
+            trigger_error.set()
+            raise RuntimeError("Exception inside Service.run()")
+
+        async def daemon_task_fn(self):
+            await trigger_error.wait()
+
+    with pytest.raises(MultiError) as exc_info:
+        await AsyncioManager.run_service(ServiceTest())
+
+    exc = exc_info.value
+    assert len(exc.exceptions) == 2
+    assert isinstance(exc.exceptions[0], RuntimeError)
+    assert isinstance(exc.exceptions[1], DaemonTaskExit)
 
 
 @pytest.mark.asyncio
