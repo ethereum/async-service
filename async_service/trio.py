@@ -16,7 +16,7 @@ from .typing import EXC_INFO
 class TrioManager(BaseManager):
     # A nursery for sub tasks and services.  This nursery is cancelled if the
     # service is cancelled but allowed to exit normally if the service exits.
-    _task_nursery: trio_typing.Nursery = None
+    _task_nursery: trio_typing.Nursery
 
     def __init__(self, service: ServiceAPI) -> None:
         super().__init__(service)
@@ -114,13 +114,11 @@ class TrioManager(BaseManager):
 
     @property
     def is_cancelled(self) -> bool:
-        if self._task_nursery is None:
+        if not hasattr(self, "_task_nursery"):
             return False
         cancel_scope = self._task_nursery.cancel_scope
         return cancel_scope.cancel_called or cancel_scope.cancelled_caught
 
-    # XXX: ISTM this is unnecessary in TrioManager as nothing happens between the stopping and
-    # finished states...
     @property
     def is_stopping(self) -> bool:
         return self._stopping.is_set() and not self.is_finished

@@ -131,15 +131,13 @@ class AsyncioManager(BaseManager):
 
                 # block here until all service tasks have finished
                 await self._wait_service_tasks()
-            except Exception:
+            finally:
                 # None of the statements above are supposed to raise exceptions (as they all rely
                 # on _run_and_manage_task() to swallow and store them in self._errors, but in case
-                # they do we probably have a bug so we log that here and move on with usual
-                # service termination.
-                self.logger.error("Unexpected exception when running service", exc_info=True)
-
-            self._stopping.set()
-            self.logger.debug("%s stopping", self)
+                # they do we probably have a bug so we just mark the service as stopping and
+                # return.
+                self._stopping.set()
+                self.logger.debug("%s stopping", self)
 
             # block here until all system tasks have finished.
             await asyncio.wait(

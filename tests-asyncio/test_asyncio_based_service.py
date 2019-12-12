@@ -1,8 +1,7 @@
 import asyncio
 
-from trio import MultiError
-
 import pytest
+from trio import MultiError
 
 from async_service import (
     AsyncioManager,
@@ -197,7 +196,9 @@ async def test_multierror_in_run():
     class ServiceTest(Service):
         async def run(self):
             self.manager.run_daemon_task(self.daemon_task_fn)
-            await asyncio.sleep(0.1)  # Give a chance for our daemon task to be scheduled.
+            await asyncio.sleep(
+                0.1
+            )  # Give a chance for our daemon task to be scheduled.
             trigger_error.set()
             raise RuntimeError("Exception inside Service.run()")
 
