@@ -48,12 +48,13 @@ async def do_service_lifecycle_check(
             # stage because a service is considered running until it is
             # finished.  Since it may be cancelled but still not finished we
             # can't know.
-            assert manager.is_stopping is True
-            assert manager.is_cancelled is True
-            # We cannot determine whether a service should be finished at this
+            # We also cannot determine whether a service should be finished at this
             # stage as it could have exited cleanly and is now finished or it
             # might be doing some cleanup after which it will register as being
-            # finished.
+            # finished, so we must check manager._stopping directly as the is_stopping property
+            # returns False if the service is already finished.
+            assert manager._stopping.is_set() is True
+            assert manager.is_cancelled is True
 
         with trio.fail_after(0.1):
             await manager.wait_finished()

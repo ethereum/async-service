@@ -33,6 +33,9 @@ class TrioManager(BaseManager):
     #
     # System Tasks
     #
+    # XXX: Can't we get rid of this and change cancel() to call
+    # self._task_nursery.cancel_scope.cancel?  Would that allow us to get rid of the system
+    # nursery as well? If we do that we could even get rid of the system nursery, no?
     async def _handle_cancelled(self) -> None:
         """
         Handle cancellation of the task nursery.
@@ -43,17 +46,6 @@ class TrioManager(BaseManager):
             "%s: _handle_cancelled triggering task nursery cancellation", self
         )
         self._task_nursery.cancel_scope.cancel()
-
-    async def _handle_stopping(self, system_nursery: trio_typing.Nursery) -> None:
-        """
-        Handle cancellation of the system nursery.
-        """
-        self.logger.debug("%s: _handle_stopping waiting for stopping", self)
-        await self.wait_stopping()
-        self.logger.debug(
-            "%s: _handle_stopping triggering system nursery cancellation", self
-        )
-        system_nursery.cancel_scope.cancel()
 
     async def _handle_run(self) -> None:
         """
@@ -102,9 +94,6 @@ class TrioManager(BaseManager):
                             self._task_nursery = task_nursery
 
                             system_nursery.start_soon(self._handle_cancelled)
-                            system_nursery.start_soon(
-                                self._handle_stopping, system_nursery
-                            )
 
                             task_nursery.start_soon(self._handle_run)
 
@@ -123,9 +112,7 @@ class TrioManager(BaseManager):
                     self._stopping.set()
                     self.logger.debug("%s stopping", self)
 
-                    # ***BLOCKING HERE***
-                    # The code flow will block again here until the system_nursery tasks have
-                    # finished and cancelled the nursery.
+                    system_nursery.cancel_scope.cancel()
             except Exception:
                 # None of our tasks running in the system nursery are supposed to raise exceptions
                 # but in case they do we probably have a bug so we log that here and move on with
@@ -155,6 +142,8 @@ class TrioManager(BaseManager):
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
 
+    # XXX: ISTM this is unnecessary in TrioManager as nothing happens between the stopping and
+    # finished states...
     @property
     def is_stopping(self) -> bool:
         return self._stopping.is_set() and not self.is_finished
