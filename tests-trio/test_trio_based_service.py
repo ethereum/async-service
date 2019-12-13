@@ -165,6 +165,37 @@ async def test_trio_service_lifecycle_run_and_task_exception():
 
 
 @pytest.mark.trio
+async def test_sub_service_cancelled_when_parent_stops():
+    # This test runs a service that runs a sub-service that sleeps forever. When the parent exits,
+    # the sub-service should be cancelled as well.
+    @as_service
+    async def WaitForeverService(manager):
+        await manager.wait_finished()
+
+    sub_manager = TrioManager(WaitForeverService())
+
+    @as_service
+    async def ServiceTest(manager):
+        async def run_sub():
+            await sub_manager.run()
+
+        manager.run_task(run_sub)
+        await manager.wait_finished()
+
+    s = ServiceTest()
+    async with background_trio_service(s) as manager:
+        await trio.sleep(0.01)
+
+    assert not manager.is_running
+    assert manager.is_cancelled
+    assert manager.is_finished
+
+    assert not sub_manager.is_running
+    assert sub_manager.is_cancelled
+    assert sub_manager.is_finished
+
+
+@pytest.mark.trio
 async def test_trio_service_lifecycle_run_and_daemon_task_exit():
     trigger_error = trio.Event()
 
@@ -192,8 +223,9 @@ async def test_trio_service_lifecycle_run_and_daemon_task_exit():
 
 @pytest.mark.trio
 async def test_multierror_in_run():
-    # This test should cause ServiceTest to raise a trio.MultiError containing two exceptions --
-    # one raised inside its run() method and another raised by the daemon task exiting early.
+    # This test should cause TrioManager.run() to explicitly raise a trio.MultiError containing
+    # two exceptions -- one raised inside its run() method and another raised by the daemon task
+    # exiting early.
     trigger_error = trio.Event()
 
     class ServiceTest(Service):

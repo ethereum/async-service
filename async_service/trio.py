@@ -71,32 +71,35 @@ class TrioManager(BaseManager):
         elif self.is_started:
             raise LifecycleError("Cannot run a service which is already started.")
 
-        async with self._run_lock:
-            try:
-                async with trio.open_nursery() as task_nursery:
-                    self._task_nursery = task_nursery
+        try:
+            async with self._run_lock:
+                try:
+                    async with trio.open_nursery() as task_nursery:
+                        self._task_nursery = task_nursery
 
-                    task_nursery.start_soon(self._handle_run)
+                        task_nursery.start_soon(self._handle_run)
 
-                    self._started.set()
+                        self._started.set()
 
-                    # ***BLOCKING HERE***
-                    # The code flow will block here until the background tasks have
-                    # completed or cancellation occurs.
-            except Exception:
-                # Exceptions from any tasks spawned by our service will be caught by trio
-                # and raised here, so we store them to report together with any others we
-                # have already captured.
-                self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                        # ***BLOCKING HERE***
+                        # The code flow will block here until the background tasks have
+                        # completed or cancellation occurs.
+                except Exception:
+                    # Exceptions from any tasks spawned by our service will be caught by trio
+                    # and raised here, so we store them to report together with any others we
+                    # have already captured.
+                    self._errors.append(cast(EXC_INFO, sys.exc_info()))
 
-            # signal that the service is stopping
+        finally:
+            # We need this inside a finally because a trio.Cancelled exception may be raised
+            # here and it wouldn't be swalled by the 'except Exception' above.
             self._stopping.set()
             self.logger.debug("%s stopping", self)
+            self._finished.set()
+            self.logger.debug("%s finished", self)
 
-        self._finished.set()
-        self.logger.debug("%s finished", self)
-
-        # If any errors occured, re-raise them here
+        # This is outside of the finally block above because we don't want to suppress
+        # trio.Cancelled or trio.MultiError exceptions coming directly from trio.
         if self.did_error:
             raise trio.MultiError(
                 tuple(
