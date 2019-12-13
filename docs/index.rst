@@ -1,20 +1,25 @@
-async-service
-==============================
+.. include:: introduction.rst
 
-Lifecycle management for async applications
-
-Contents
---------
 
 .. toctree::
-    :maxdepth: 3
+   :hidden:
+   :maxdepth: 1
+   :caption: General
 
-    async_service
-    releases
+   introduction
+   release_notes
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Fundamentals
 
-Indices and tables
-------------------
+   guides
+   api
 
-* :ref:`genindex`
-* :ref:`modindex`
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Community
+
+   code_of_conduct

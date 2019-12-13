@@ -1,5 +1,8 @@
+Guides
+======
+
 Services
-========
+~~~~~~~~
 
 This library provides strong lifecycle management for asynchronous applications.
 
