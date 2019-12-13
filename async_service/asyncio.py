@@ -19,6 +19,7 @@ from trio import MultiError
 
 from async_service._utils import iter_dag
 
+from ._utils import get_task_name
 from .abc import ManagerAPI, ServiceAPI
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
@@ -210,6 +211,7 @@ class AsyncioManager(BaseManager):
         daemon: bool,
         name: str,
     ) -> None:
+        self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
         try:
             await async_fn(*args)
         except asyncio.CancelledError:
@@ -246,10 +248,10 @@ class AsyncioManager(BaseManager):
         current_task = asyncio.Task.current_task()
         if not _root and current_task not in self._service_task_dag:
             raise Exception(f"TODO: unknown task {current_task}")
+        task_name = get_task_name(async_fn, name)
+
         task = asyncio.ensure_future(
-            self._run_and_manage_task(
-                async_fn, *args, daemon=daemon, name=name or repr(async_fn)
-            ),
+            self._run_and_manage_task(async_fn, *args, daemon=daemon, name=task_name),
             loop=self._loop,
         )
         self._service_task_dag[task] = []
@@ -260,7 +262,8 @@ class AsyncioManager(BaseManager):
         self, service: ServiceAPI, daemon: bool = False, name: str = None
     ) -> ManagerAPI:
         child_manager = type(self)(service, loop=self._loop)
-        self.run_task(child_manager.run, daemon=daemon, name=name or repr(service))
+        task_name = get_task_name(service, name)
+        self.run_task(child_manager.run, daemon=daemon, name=task_name)
         return child_manager
 
 

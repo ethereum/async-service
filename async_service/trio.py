@@ -6,6 +6,7 @@ from async_generator import asynccontextmanager
 import trio
 import trio_typing
 
+from ._utils import get_task_name
 from .abc import ManagerAPI, ServiceAPI
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError
@@ -184,6 +185,7 @@ class TrioManager(BaseManager):
         daemon: bool,
         name: str,
     ) -> None:
+        self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
         try:
             await async_fn(*args)
         except Exception as err:
@@ -214,21 +216,21 @@ class TrioManager(BaseManager):
         daemon: bool = False,
         name: str = None,
     ) -> None:
+        task_name = get_task_name(async_fn, name)
 
         self._task_nursery.start_soon(
-            functools.partial(
-                self._run_and_manage_task, daemon=daemon, name=name or repr(async_fn)
-            ),
+            functools.partial(self._run_and_manage_task, daemon=daemon, name=task_name),
             async_fn,
             *args,
-            name=name,
+            name=task_name,
         )
 
     def run_child_service(
         self, service: ServiceAPI, daemon: bool = False, name: str = None
     ) -> ManagerAPI:
         child_manager = type(self)(service)
-        self.run_task(child_manager.run, daemon=daemon, name=name or repr(service))
+        task_name = get_task_name(service, name)
+        self.run_task(child_manager.run, daemon=daemon, name=task_name)
         return child_manager
 
 
