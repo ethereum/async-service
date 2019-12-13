@@ -3,6 +3,7 @@ import functools
 import sys
 from typing import (
     Any,
+    AsyncContextManager,
     AsyncIterator,
     Awaitable,
     Callable,
@@ -272,43 +273,77 @@ class AsyncioManager(BaseManager):
         return child_manager
 
 
-TReturn = TypeVar("TReturn")
-TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, TReturn]])
+def cleanup_tasks(*tasks: "asyncio.Future[Any]") -> AsyncContextManager[None]:
+    """
+    Context manager that ensures that all tasks are properly cancelled and awaited.
+
+    The order in which tasks are cleaned is such that the first task will be
+    the last to be cancelled/awaited.
+
+    This function **must** be called with at least one task.
+    """
+    return _cleanup_tasks(*tasks)
+
+
+@asynccontextmanager
+async def _cleanup_tasks(
+    task: "asyncio.Future[Any]", *tasks: "asyncio.Future[Any]"
+) -> AsyncIterator[None]:
+    try:
+        if tasks:
+            async with cleanup_tasks(*tasks):
+                yield
+        else:
+            yield
+    finally:
+        if not task.done():
+            task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, Any]])
 
 
 def external_api(func: TFunc) -> TFunc:
     @functools.wraps(func)
-    async def inner(self: ServiceAPI, *args: Any) -> TReturn:
-        if self.manager.is_stopping:
+    async def inner(self: ServiceAPI, *args: Any, **kwargs: Any) -> Any:
+        if not hasattr(self, "manager"):
             raise ServiceCancelled(
-                f"Cannot access external API {func}.  Service is already cancelled"
+                f"Cannot access external API {func}.  Service has not been run."
             )
 
-        func_task: "asyncio.Future[TReturn]" = asyncio.ensure_future(func(self, *args))
-        service_stopping_task = asyncio.ensure_future(self.manager.wait_stopping())
+        manager = self.manager
+
+        if not manager.is_running:
+            raise ServiceCancelled(
+                f"Cannot access external API {func}.  Service is not running: "
+                f"started={manager.is_started}  running={manager.is_running} "
+                f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+            )
+
+        func_task: "asyncio.Future[Any]" = asyncio.ensure_future(
+            func(self, *args, **kwargs)
+        )
+        service_stopping_task = asyncio.ensure_future(manager.wait_stopping())
 
         done, pending = await asyncio.wait(
             (func_task, service_stopping_task), return_when=asyncio.FIRST_COMPLETED
         )
-
-        if func_task.done():
-            service_stopping_task.cancel()
-            try:
-                await service_stopping_task
-            except asyncio.CancelledError:
-                pass
-            return await func_task
-        elif service_stopping_task.done():
-            func_task.cancel()
-            try:
-                await func_task
-            except asyncio.CancelledError:
-                pass
-            raise ServiceCancelled(
-                f"Cannot access external API {func}.  Service is already cancelled"
-            )
-        else:
-            raise Exception("Code path should be unreachable")
+        async with cleanup_tasks(*done, *pending):
+            if func_task.done():
+                return await func_task
+            elif service_stopping_task.done():
+                raise ServiceCancelled(
+                    f"Cannot access external API {func}.  Service is not running: "
+                    f"started={manager.is_started}  running={manager.is_running} "
+                    f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                )
+            else:
+                raise Exception("Code path should be unreachable")
 
     return cast(TFunc, inner)
 
@@ -327,23 +362,14 @@ async def background_asyncio_service(
     task = asyncio.ensure_future(manager.run(), loop=loop)
 
     try:
-        await manager.wait_started()
+        async with cleanup_tasks(task):
+            await manager.wait_started()
 
-        try:
-            yield manager
-        finally:
-            await manager.stop()
-
-        assert not manager.did_error, "ARST ARST ARST"
-
+            try:
+                yield manager
+            finally:
+                await manager.stop()
     finally:
-        task.cancel()
-
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
         if manager.did_error:
             # TODO: better place for this.
             raise MultiError(
