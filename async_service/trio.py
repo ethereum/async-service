@@ -1,6 +1,17 @@
 import functools
 import sys
-from typing import Any, AsyncIterator, Awaitable, Callable, cast
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Dict,
+    Optional,
+    Tuple,
+    TypeVar,
+    cast,
+)
 
 from async_generator import asynccontextmanager
 import trio
@@ -9,7 +20,7 @@ import trio_typing
 from ._utils import get_task_name
 from .abc import ManagerAPI, ServiceAPI
 from .base import BaseManager
-from .exceptions import DaemonTaskExit, LifecycleError
+from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
 from .typing import EXC_INFO
 
 
@@ -204,6 +215,104 @@ class TrioManager(BaseManager):
         task_name = get_task_name(service, name)
         self.run_task(child_manager.run, daemon=daemon, name=task_name)
         return child_manager
+
+
+TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, Any]])
+
+
+_ChannelPayload = Tuple[Optional[Any], Optional[BaseException]]
+
+
+async def _wait_stopping_or_finished(
+    service: ServiceAPI,
+    api_func: Callable[..., Any],
+    channel: trio.abc.SendChannel[_ChannelPayload],
+) -> None:
+    manager = service.manager
+
+    if service.manager.is_stopping or service.manager.is_finished:
+        await channel.send(
+            (
+                None,
+                ServiceCancelled(
+                    f"Cannot access external API {api_func}.  Service is not running: "
+                    f"started={manager.is_started}  running={manager.is_running} "
+                    f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                ),
+            )
+        )
+        return
+
+    await service.manager.wait_stopping()
+    await channel.send(
+        (
+            None,
+            ServiceCancelled(
+                f"Cannot access external API {api_func}.  Service is not running: "
+                f"started={manager.is_started}  running={manager.is_running} "
+                f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+            ),
+        )
+    )
+
+
+async def _wait_api_fn(
+    self: ServiceAPI,
+    api_fn: Callable[..., Any],
+    args: Tuple[Any, ...],
+    kwargs: Dict[str, Any],
+    channel: trio.abc.SendChannel[_ChannelPayload],
+) -> None:
+    try:
+        result = await api_fn(self, *args, **kwargs)
+    except Exception:
+        _, exc_value, exc_tb = sys.exc_info()
+        if exc_value is None or exc_tb is None:
+            raise Exception(
+                "This should be unreachable but acts as a type guard for mypy"
+            )
+        await channel.send((None, exc_value.with_traceback(exc_tb)))
+    else:
+        await channel.send((result, None))
+
+
+def external_api(func: TFunc) -> TFunc:
+    @functools.wraps(func)
+    async def inner(self: ServiceAPI, *args: Any, **kwargs: Any) -> Any:
+        if not hasattr(self, "manager"):
+            raise ServiceCancelled(
+                f"Cannot access external API {func}.  Service has not been run."
+            )
+
+        manager = self.manager
+
+        if not manager.is_running:
+            raise ServiceCancelled(
+                f"Cannot access external API {func}.  Service is not running: "
+                f"started={manager.is_started}  running={manager.is_running} "
+                f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+            )
+
+        channels: Tuple[
+            trio.abc.SendChannel[_ChannelPayload],
+            trio.abc.ReceiveChannel[_ChannelPayload],
+        ] = trio.open_memory_channel(0)
+        send_channel, receive_channel = channels
+
+        async with trio.open_nursery() as nursery:
+            # mypy's type hints for start_soon break with this invocation.
+            nursery.start_soon(
+                _wait_api_fn, self, func, args, kwargs, send_channel  # type: ignore
+            )
+            nursery.start_soon(_wait_stopping_or_finished, self, func, send_channel)
+            result, err = await receive_channel.receive()
+            nursery.cancel_scope.cancel()
+        if err is None:
+            return result
+        else:
+            raise err
+
+    return cast(TFunc, inner)
 
 
 @asynccontextmanager
