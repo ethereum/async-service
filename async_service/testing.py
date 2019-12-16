@@ -21,6 +21,7 @@ async def _test_service_task_cancellation_dag_order(
         12: (13,),
         13: (),
     }
+    # finished = []
     cancelled = []
 
     class ServiceTest(Service):
@@ -30,18 +31,24 @@ async def _test_service_task_cancellation_dag_order(
         async def _do_task(self, task_id):
             children = dag[task_id]
             for child_id in children:
-                self.manager.run_task(self._do_task, child_id)
+                self.manager.run_task(self._do_task, child_id, name=f'task-{child_id}')
 
             # yield for a moment to give these time to start
             await sleep_fn(0)
             self._task_events[task_id].set()
-            self.manager.logger.info("Task %d started", task_id)
+            self.manager.logger.debug("Task %d started", task_id)
             try:
                 await self.manager.wait_finished()
             except cancelled_class:
-                self.manager.logger.info("Task %d cancelled", task_id)
+                self.manager.logger.debug("Task %d cancelled", task_id)
                 cancelled.append(task_id)
                 raise
+            finally:
+                # XXX: On trio, having this sleep here causes the whole service to terminate
+                # before any tasks.
+                # await sleep_fn(0)
+                # finished.append(task_id)
+                pass
 
         async def run(self):
             await self._do_task(0)
@@ -51,6 +58,7 @@ async def _test_service_task_cancellation_dag_order(
         await wait_events_fn(service._task_events.values())
         manager.cancel()
 
+    # assert len(finished) == len(dag)
     assert len(cancelled) == len(dag)
 
     seen = set()
