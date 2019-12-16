@@ -175,6 +175,11 @@ If a task raises an exception it will trigger cancellation of the service.
 Upon exiting, all errors that were encountered while running the service will
 be re-raised.
 
+For slighly nicer logging output you can provide a ``name`` as a keyword
+argument to `~async_service.abc._InternalManagerAPI.run_task` which will be
+used in logging messages.
+
+
 Daemon Tasks
 ~~~~~~~~~~~~
 
@@ -192,7 +197,9 @@ service.  This can be done by passing ``daemon=True`` into the call to
                 ...
 
         async def run(self):
+            # The following two statements are equivalent.
             self.manager.run_task(self.do_long_running_thing, daemon=True)
+            self.manager.run_daemon_task(self.do_long_running_thing)
 
 
 Alternatively you can use :meth:`~async_service.abc._InternalManagerAPI.run_daemon_task`.
@@ -200,6 +207,8 @@ Alternatively you can use :meth:`~async_service.abc._InternalManagerAPI.run_daem
 A *"Daemon"* task which finishes before the service is stopping will trigger
 cancellation and result in the
 :class:`~async_service.exceptions.DaemonTaskExit` exception to be raised.
+
+
 
 Child Services
 --------------
@@ -232,6 +241,27 @@ child service finishes before the parent service has finished, it will raise a
 :class:`~async_service.exceptions.DaemonTaskExit` exception.
 
 
+Task Shutdown
+-------------
+
+.. note:: This behavior is currently only guaranteed when using the ``asyncio`` based service manager.
+
+
+As a service spawns background tasks, the manager keeps track of them as a
+DAG_.  The **root** of the DAG is always the
+:meth:`~async_service.abc.ServiceAPI.run` method with each new background task
+being a child of whatever parent coroutine spawned it.
+
+When the service is cancelled, these tasks are cancelled by traversing the task
+DAG starting at the leaves and working up towards the root.  This provides a
+guarantee that if your ``run()`` method spawns multiple backound tasks, that
+the background tasks will be cancelled before the ``run()`` method is
+cancelled.
+
+
+.. _DAG: https://en.wikipedia.org/wiki/Directed_acyclic_graph
+
+
 External Service APIs
 ---------------------
 
@@ -245,14 +275,13 @@ decorator.
 
 .. code-block:: python
 
-    from async_service import Service, background_asyncio_service
-    from async_service.asyncio import external_api
+    from async_service import Service, background_asyncio_service, external_asyncio_api
 
     class MyService(Service):
         async def run(self):
             ...
 
-        @external_api
+        @external_asyncio_api
         async def get_thing(self):
             ...
 
@@ -267,7 +296,11 @@ decorator.
         # now cancel the service
         manager.cancel()
 
-        # this will fail
+        # this will fail because the service is cancelled.
         thing = await service.get_thing()
 
-.. note:: The :func:`~async_service.asyncio.external_api` can only be used on coroutine functions.
+.. note:: The :func:`~async_service.external_asyncio_api` can only be used on coroutine functions.
+
+
+When a method decorated with :func:`~async_service.external_asyncio_api` fails
+it raises an :class:`async_service.exceptions.ServiceCancelled` exception.
