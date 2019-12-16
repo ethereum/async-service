@@ -33,7 +33,7 @@ async def _test_service_task_cancellation_dag_order(
             # yield for a moment to give these time to start
             await sleep_fn(0)
             self._task_events[task_id].set()
-            self.manager.logger.info("Task %d started", task_id)
+            self.manager.logger.debug("Task %d started", task_id)
             try:
                 await self.manager.wait_finished()
             except cancelled_class:
