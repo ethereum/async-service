@@ -5,7 +5,7 @@ import trio_typing
 
 
 class ServiceAPI(ABC):
-    manager: "_InternalManagerAPI"
+    manager: "InternalManagerAPI"
 
     @abstractmethod
     async def run(self) -> None:
@@ -145,11 +145,11 @@ class ManagerAPI(ABC):
         ...
 
 
-class _InternalManagerAPI(ManagerAPI):
+class InternalManagerAPI(ManagerAPI):
     """
     Defines the API that the `Service.manager` property exposes.
 
-    The _InternalManagerAPI / ManagerAPI distinction is in place to ensure that
+    The InternalManagerAPI / ManagerAPI distinction is in place to ensure that
     external callers to a service do not try to use the task scheduling
     functionality as it is only designed to be used internally.
     """

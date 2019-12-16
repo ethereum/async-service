@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Awaitable, Callable, List, Type
 
-from .abc import ManagerAPI, ServiceAPI, _InternalManagerAPI
+from .abc import InternalManagerAPI, ManagerAPI, ServiceAPI
 from .exceptions import LifecycleError
 from .typing import EXC_INFO
 
@@ -31,7 +31,7 @@ def as_service(service_fn: LogicFnType) -> Type[ServiceAPI]:
     return _Service
 
 
-class BaseManager(_InternalManagerAPI):
+class BaseManager(InternalManagerAPI):
     logger = logging.getLogger("async_service.Manager")
 
     _service: ServiceAPI

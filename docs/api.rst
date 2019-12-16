@@ -14,6 +14,15 @@ ManagerAPI
     :show-inheritance:
 
 
+InternalManagerAPI
+------------------
+
+.. autoclass:: async_service.abc.InternalManagerAPI
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
 ServiceAPI
 ----------
 
