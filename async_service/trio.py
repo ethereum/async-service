@@ -113,23 +113,27 @@ class TrioManager(BaseManager):
 
         try:
             async with self._run_lock:
-                try:
-                    async with trio.open_nursery() as nursery:
-                        self._root_nursery = nursery
+                async with trio.open_nursery() as system_nursery:
+                    system_nursery.start_soon(self._handle_cancelled)
 
-                        nursery.start_soon(self._handle_cancelled)
-                        nursery.start_soon(self._handle_run)
+                    try:
+                        async with trio.open_nursery() as nursery:
+                            self._root_nursery = nursery
 
-                        self._started.set()
+                            nursery.start_soon(self._handle_run)
 
-                        # ***BLOCKING HERE***
-                        # The code flow will block here until the background tasks have
-                        # completed or cancellation occurs.
-                except Exception:
-                    # Exceptions from any tasks spawned by our service will be caught by trio
-                    # and raised here, so we store them to report together with any others we
-                    # have already captured.
-                    self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                            self._started.set()
+
+                            # ***BLOCKING HERE***
+                            # The code flow will block here until the background tasks have
+                            # completed or cancellation occurs.
+                    except Exception:
+                        # Exceptions from any tasks spawned by our service will be caught by trio
+                        # and raised here, so we store them to report together with any others we
+                        # have already captured.
+                        self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                    finally:
+                        system_nursery.cancel_scope.cancel()
 
         finally:
             # We need this inside a finally because a trio.Cancelled exception may be raised
@@ -158,10 +162,7 @@ class TrioManager(BaseManager):
 
     @property
     def is_cancelled(self) -> bool:
-        if not hasattr(self, "_root_nursery"):
-            return False
-        cancel_scope = self._root_nursery.cancel_scope
-        return cancel_scope.cancel_called or cancel_scope.cancelled_caught
+        return self._cancelled.is_set()
 
     @property
     def is_stopping(self) -> bool:
@@ -200,7 +201,6 @@ class TrioManager(BaseManager):
         parent: trio.hazmat.Task,
         task_status=trio.TASK_STATUS_IGNORED,
     ) -> None:
-        task_status.started()
         current_task = trio.hazmat.current_task()
         done = trio.Event()
         self._service_task_dag[current_task] = []
@@ -209,6 +209,7 @@ class TrioManager(BaseManager):
 
         with trio.CancelScope() as cancel_scope:
             self._task_cancel_scopes[current_task] = (cancel_scope, done)
+            task_status.started()
 
             self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
             try:

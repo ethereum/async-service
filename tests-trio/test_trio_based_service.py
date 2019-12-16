@@ -184,7 +184,7 @@ async def test_sub_service_cancelled_when_parent_stops():
 
     s = ServiceTest()
     async with background_trio_service(s) as manager:
-        await trio.sleep(0.01)
+        await sub_manager.wait_started()
 
     assert not manager.is_running
     assert manager.is_cancelled
