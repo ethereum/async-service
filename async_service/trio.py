@@ -1,12 +1,12 @@
 import functools
 import sys
-from typing import Any, AsyncIterator, Awaitable, Callable, cast
+from typing import Any, AsyncIterator, Awaitable, Callable, cast, Dict, List
 
 from async_generator import asynccontextmanager
 import trio
 import trio_typing
 
-from ._utils import get_task_name
+from ._utils import get_task_name, iter_dag
 from .abc import ManagerAPI, ServiceAPI
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError
@@ -19,16 +19,25 @@ class TrioManager(BaseManager):
     # cancelled if the service is cancelled but allowed to exit normally if the service exits.
     _root_nursery: trio_typing.Nursery
 
+    # A mapping of parent to list of children which tracks the hierarchy of
+    # service tasks.
+    _service_task_dag: Dict[trio.hazmat.Task, List[trio.hazmat.Task]]
+
+    # Individual nurseries for each child task.
+    _task_cancel_scopes: Dict[trio.hazmat.Task, trio.CancelScope]
+
     def __init__(self, service: ServiceAPI) -> None:
         super().__init__(service)
 
         # events
+        self._cancelled = trio.Event()
         self._started = trio.Event()
         self._stopping = trio.Event()
         self._finished = trio.Event()
 
-        self._task_nurseries = {}
-        self._task_nurseries_lock = trio.Lock()
+        # task dag tracking
+        self._service_task_dag = {}
+        self._task_cancel_scopes = {}
 
         # locks
         self._run_lock = trio.Lock()
@@ -36,6 +45,23 @@ class TrioManager(BaseManager):
     #
     # System Tasks
     #
+    async def _handle_cancelled(self) -> None:
+        """
+        When cancellation is requested this triggers the cancellation of all
+        background tasks.
+        """
+        self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
+        await self._cancelled.wait()
+        self.logger.debug("%s: _handle_cancelled triggering task DAG cancellation", self)
+
+        for task in iter_dag(self._service_task_dag):
+            scope = self._task_cancel_scopes[task]
+            scope.cancel()
+            await trio.hazmat.checkpoint()
+
+        # We must then finally
+        self._root_nursery.cancel_scope.cancel()
+
     async def _handle_run(self) -> None:
         """
         Run and monitor the actual :meth:`ServiceAPI.run` method.
@@ -43,7 +69,9 @@ class TrioManager(BaseManager):
         In the event that it throws an exception the service will be cancelled.
         """
         self._root_task = trio.hazmat.current_task()
-        self._task_nurseries[self._root_task] = self._root_nursery
+        self._task_cancel_scopes[self._root_task] = self._root_nursery.cancel_scope
+        self._service_task_dag[self._root_task] = []
+
         try:
             await self._service.run()
         except Exception as err:
@@ -83,6 +111,7 @@ class TrioManager(BaseManager):
                     async with trio.open_nursery() as nursery:
                         self._root_nursery = nursery
 
+                        nursery.start_soon(self._handle_cancelled)
                         nursery.start_soon(self._handle_run)
 
                         self._started.set()
@@ -142,7 +171,7 @@ class TrioManager(BaseManager):
     def cancel(self) -> None:
         if not self.is_started:
             raise LifecycleError("Cannot cancel as service which was never started.")
-        self._root_nursery.cancel_scope.cancel()
+        self._cancelled.set()
 
     #
     # Wait API
@@ -162,42 +191,41 @@ class TrioManager(BaseManager):
         *args: Any,
         daemon: bool,
         name: str,
-        parent,
+        parent: trio.hazmat.Task,
         task_status=trio.TASK_STATUS_IGNORED,
     ) -> None:
         task_status.started()
         current_task = trio.hazmat.current_task()
+        self._service_task_dag[current_task] = []
+        self._service_task_dag[parent].append(current_task)
         self.logger.info("Starting task %s, child of %s", current_task, parent)
-        async with self._task_nurseries_lock:
-            # We need to pre-populate self._task_nurseries with a nursery for this task so that if
-            # it spawns any sub-tasks, we know which nursery to run it from.
-            nursery = self._task_nurseries.get(current_task)
-            if nursery is None:
-                nursery = await trio.open_nursery().__aenter__()
-                self._task_nurseries[current_task] = nursery
-        self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
-        try:
-            await async_fn(*args)
-        except Exception as err:
-            self.logger.debug(
-                "task '%s[daemon=%s]' exited with error: %s",
-                name,
-                daemon,
-                err,
-                exc_info=True,
-            )
-            self._errors.append(cast(EXC_INFO, sys.exc_info()))
-            self.cancel()
-        else:
-            self.logger.debug("task '%s[daemon=%s]' finished.", name, daemon)
-            if daemon:
+
+        with trio.CancelScope() as cancel_scope:
+            self._task_cancel_scopes[current_task] = cancel_scope
+
+            self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
+            try:
+                await async_fn(*args)
+            except Exception as err:
                 self.logger.debug(
-                    "daemon task '%s' exited unexpectedly.  Cancelling service: %s",
+                    "task '%s[daemon=%s]' exited with error: %s",
                     name,
-                    self,
+                    daemon,
+                    err,
+                    exc_info=True,
                 )
+                self._errors.append(cast(EXC_INFO, sys.exc_info()))
                 self.cancel()
-                raise DaemonTaskExit(f"Daemon task {name} exited")
+            else:
+                self.logger.debug("task '%s[daemon=%s]' finished.", name, daemon)
+                if daemon:
+                    self.logger.debug(
+                        "daemon task '%s' exited unexpectedly.  Cancelling service: %s",
+                        name,
+                        self,
+                    )
+                    self.cancel()
+                    raise DaemonTaskExit(f"Daemon task {name} exited")
 
     def run_task(
         self,
@@ -210,20 +238,12 @@ class TrioManager(BaseManager):
         current_task = trio.hazmat.current_task()
         partial_fn = functools.partial(self._run_and_manage_task, daemon=daemon, name=task_name,
                                        parent=current_task)
-        if current_task == self._root_task:
-            self._root_nursery.start_soon(
-                partial_fn,
-                async_fn,
-                *args,
-                name=task_name,
-            )
-        else:
-            nursery = self._task_nurseries.get(current_task)
-            assert nursery is not None
-            self.logger.info("Running task %s on nursery %s", task_name, nursery)
-            self._root_nursery.start_soon(
-                functools.partial(
-                    nursery.start, partial_fn, async_fn, *args, name=task_name))
+        self._root_nursery.start_soon(
+            partial_fn,
+            async_fn,
+            *args,
+            name=task_name,
+        )
 
     def run_child_service(
         self, service: ServiceAPI, daemon: bool = False, name: str = None

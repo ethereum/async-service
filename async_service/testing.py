@@ -28,7 +28,7 @@ async def _test_service_task_cancellation_dag_order(
         async def _do_task(self, task_id):
             children = dag[task_id]
             for child_id in children:
-                self.manager.run_task(self._do_task, child_id)
+                self.manager.run_task(self._do_task, child_id, name=f'task-{child_id}')
 
             # yield for a moment to give these time to start
             await sleep_fn(0)
