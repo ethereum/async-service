@@ -188,6 +188,10 @@ class TrioManager(BaseManager):
         daemon: bool = False,
         name: str = None,
     ) -> None:
+        if not self.is_running or self.is_cancelled:
+            raise LifecycleError(
+                "Tasks may not be scheduled if the service is not running"
+            )
         task_name = get_task_name(async_fn, name)
 
         self._task_nursery.start_soon(

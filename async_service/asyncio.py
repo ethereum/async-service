@@ -21,6 +21,7 @@ from async_service._utils import iter_dag
 
 from ._utils import get_task_name
 from .abc import ManagerAPI, ServiceAPI
+from .asyncio_compat import get_current_task
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
 from .typing import EXC_INFO
@@ -250,7 +251,11 @@ class AsyncioManager(BaseManager):
         name: str = None,
         _root: bool = False,
     ) -> None:
-        current_task = asyncio.Task.current_task()
+        if not _root and (not self.is_running or self.is_cancelled):
+            raise LifecycleError(
+                "Tasks may not be scheduled if the service is not running"
+            )
+        current_task = get_current_task()
         if not _root and current_task not in self._service_task_dag:
             raise Exception(f"TODO: unknown task {current_task}")
         task_name = get_task_name(async_fn, name)
