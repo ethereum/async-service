@@ -42,6 +42,9 @@ class TrioManager(BaseManager):
         self._service_task_dag = {}
         self._task_cancel_scopes = {}
 
+        # child service tracking
+        self._child_managers = []
+
         # locks
         self._run_lock = trio.Lock()
 
@@ -57,13 +60,15 @@ class TrioManager(BaseManager):
         await self._cancelled.wait()
         self.logger.debug("%s: _handle_cancelled triggering task DAG cancellation", self)
 
-        for task in iter_dag(self._service_task_dag):
+        for task in iter_dag(self._service_task_dag.copy()):
             scope, done = self._task_cancel_scopes[task]
             scope.cancel()
             await done.wait()
 
-        # We must then finally
-        self._root_nursery.cancel_scope.cancel()
+        # Ensure all of the child services that were running will also register
+        # as being cancelled.
+        for child_manager in self._child_managers:
+            child_manager.cancel()
 
     async def _handle_run(self) -> None:
         """
@@ -260,6 +265,7 @@ class TrioManager(BaseManager):
         child_manager = type(self)(service)
         task_name = get_task_name(service, name)
         self.run_task(child_manager.run, daemon=daemon, name=task_name)
+        self._child_managers.append(child_manager)
         return child_manager
 
 
