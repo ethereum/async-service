@@ -3,7 +3,6 @@ import functools
 import sys
 from typing import (
     Any,
-    AsyncContextManager,
     AsyncIterator,
     Awaitable,
     Callable,
@@ -273,7 +272,8 @@ class AsyncioManager(BaseManager):
         return child_manager
 
 
-def cleanup_tasks(*tasks: "asyncio.Future[Any]") -> AsyncContextManager[None]:
+@asynccontextmanager
+async def cleanup_tasks(*tasks: "asyncio.Future[Any]") -> AsyncIterator[None]:
     """
     Context manager that ensures that all tasks are properly cancelled and awaited.
 
@@ -282,16 +282,14 @@ def cleanup_tasks(*tasks: "asyncio.Future[Any]") -> AsyncContextManager[None]:
 
     This function **must** be called with at least one task.
     """
-    return _cleanup_tasks(*tasks)
-
-
-@asynccontextmanager
-async def _cleanup_tasks(
-    task: "asyncio.Future[Any]", *tasks: "asyncio.Future[Any]"
-) -> AsyncIterator[None]:
     try:
-        if tasks:
-            async with cleanup_tasks(*tasks):
+        task = tasks[0]
+    except IndexError:
+        raise TypeError("cleanup_tasks must be called with at least one task")
+
+    try:
+        if len(tasks) > 1:
+            async with cleanup_tasks(*tasks[1:]):
                 yield
         else:
             yield
