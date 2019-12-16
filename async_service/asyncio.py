@@ -63,7 +63,7 @@ class AsyncioManager(BaseManager):
         """
         self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
         await self.wait_cancelled()
-        self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
+        self.logger.debug("%s: _handle_cancelled triggering task DAG cancellation", self)
 
         # TODO: need new comment here explaining the way we iterate in
         # dependency first order.
