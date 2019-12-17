@@ -10,6 +10,7 @@ from async_service import (
     as_service,
     background_asyncio_service,
 )
+from async_service.testing import CheckParentAndChildTaskTerminationOrderService
 
 
 class WaitCancelledService(Service):
@@ -412,3 +413,16 @@ async def test_asyncio_service_with_async_generator():
     async with background_asyncio_service(ServiceTest()) as manager:
         await is_within_agen.wait()
         manager.cancel()
+
+
+@pytest.mark.asyncio
+async def test_parent_task_terminates_after_child():
+    s = AsyncioCheckParentAndChildTaskTerminationOrderService()
+    await AsyncioManager.run_service(s)
+
+
+class AsyncioCheckParentAndChildTaskTerminationOrderService(
+        CheckParentAndChildTaskTerminationOrderService):
+
+    async def sleep(self, delay):
+        await asyncio.sleep(delay)
