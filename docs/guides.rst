@@ -304,3 +304,77 @@ decorator.
 
 When a method decorated with :func:`~async_service.external_asyncio_api` fails
 it raises an :class:`async_service.exceptions.ServiceCancelled` exception.
+
+Cleanup logic
+-------------
+
+In the case that we need to run some logic **after** the service has finished
+running but **before** the service has registered as finished we can do so with
+the following patterns.  However, special care and consideration should be
+taken as the following patterns can result in your application hanging when you
+try to shut it down.
+
+The basic idea is to use a ``try/finally`` expression in you main
+``Service.run()`` method.  Since services track and shutdown their tasks using
+a DAG, the code in the ``finally`` block is guaranteed to run after everything
+else has stopped.
+
+.. code-block:: python
+
+    from async_service import Service
+
+    class CleanupService(Service):
+        async def run(self) -> None:
+            try:
+                ...  # do main service logic here
+            finally:
+                ...  # do cleanup logic here
+
+
+For those running under ``trio`` it is worth noting that if your cleanup logic
+needs to ``await`` anything you will probably need to shield it from further
+cancellations.
+
+
+.. code-block:: python
+
+    
+    from async_service import Service
+
+    class CleanupService(Service):
+        async def run(self) -> None:
+            try:
+                ...  # do main service logic here
+            finally:
+                with trio.CancelScope(shield=True):
+                    ...  # do cleanup logic here
+
+
+It is relatively trivial to implement a reusable pattern for doing cleanup.
+
+
+.. code-block:: python
+
+    
+    from async_service import Service
+
+    class CleanupService(Service):
+        async def run(self) -> None:
+            try:
+                ...  # do main service logic here
+            except:
+                await self.on_error()
+                raise
+            else:
+                await self.on_success()
+            finally:
+                await self.on_finally()
+
+        async def on_success(self) -> None:
+            pass
+        
+        async def on_error(self) -> None:
+            pass
+
+        async def on_finally(self) -> None:
+            pass
