@@ -8,6 +8,7 @@ from async_service import (
     as_service,
     background_trio_service,
 )
+from async_service.testing import CheckParentAndChildTaskTerminationOrderService
 
 
 class WaitCancelledService(Service):
@@ -457,3 +458,16 @@ async def test_trio_service_with_async_generator():
     async with background_trio_service(ServiceTest()) as manager:
         await is_within_agen.wait()
         manager.cancel()
+
+
+@pytest.mark.trio
+async def test_parent_task_terminates_after_child():
+    s = TrioCheckParentAndChildTaskTerminationOrderService()
+    await TrioManager.run_service(s)
+
+
+class TrioCheckParentAndChildTaskTerminationOrderService(
+        CheckParentAndChildTaskTerminationOrderService):
+
+    async def sleep(self, delay):
+        await trio.sleep(delay)
