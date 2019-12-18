@@ -3,6 +3,7 @@ import trio
 
 from async_service import (
     DaemonTaskExit,
+    LifecycleError,
     Service,
     TrioManager,
     as_service,
@@ -457,3 +458,14 @@ async def test_trio_service_with_async_generator():
     async with background_trio_service(ServiceTest()) as manager:
         await is_within_agen.wait()
         manager.cancel()
+
+
+@pytest.mark.trio
+async def test_trio_service_disallows_task_scheduling_after_cancel():
+    @as_service
+    async def ServiceTest(manager):
+        manager.cancel()
+        with pytest.raises(LifecycleError):
+            manager.run_task(trio.sleep, 1)
+
+    await TrioManager.run_service(ServiceTest())

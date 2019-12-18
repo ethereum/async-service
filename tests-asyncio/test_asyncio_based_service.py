@@ -6,6 +6,7 @@ from trio import MultiError
 from async_service import (
     AsyncioManager,
     DaemonTaskExit,
+    LifecycleError,
     Service,
     as_service,
     background_asyncio_service,
@@ -412,3 +413,14 @@ async def test_asyncio_service_with_async_generator():
     async with background_asyncio_service(ServiceTest()) as manager:
         await is_within_agen.wait()
         manager.cancel()
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_disallows_task_scheduling_after_cancel():
+    @as_service
+    async def ServiceTest(manager):
+        manager.cancel()
+        with pytest.raises(LifecycleError):
+            manager.run_task(asyncio.sleep, 1)
+
+    await AsyncioManager.run_service(ServiceTest())
