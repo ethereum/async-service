@@ -167,10 +167,13 @@ async def test_trio_service_lifecycle_run_and_task_exception():
 
 @pytest.mark.trio
 async def test_sub_service_cancelled_when_parent_stops():
+    ready_cancel = trio.Event()
+
     # This test runs a service that runs a sub-service that sleeps forever. When the parent exits,
     # the sub-service should be cancelled as well.
     @as_service
     async def WaitForeverService(manager):
+        ready_cancel.set()
         await manager.wait_finished()
 
     sub_manager = TrioManager(WaitForeverService())
@@ -185,14 +188,14 @@ async def test_sub_service_cancelled_when_parent_stops():
 
     s = ServiceTest()
     async with background_trio_service(s) as manager:
-        await trio.sleep(0.01)
+        await ready_cancel.wait()
 
     assert not manager.is_running
     assert manager.is_cancelled
     assert manager.is_finished
 
     assert not sub_manager.is_running
-    assert sub_manager.is_cancelled
+    assert not sub_manager.is_cancelled
     assert sub_manager.is_finished
 
 
@@ -452,7 +455,7 @@ async def test_trio_service_with_async_generator():
     @as_service
     async def ServiceTest(manager):
         async for _ in do_agen():  # noqa: F841
-            await trio.sleep(0)
+            await trio.hazmat.checkpoint()
             is_within_agen.set()
 
     async with background_trio_service(ServiceTest()) as manager:

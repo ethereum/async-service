@@ -81,7 +81,9 @@ class DAGServiceTest(Service):
             async with resource:
                 assert resource.is_active
                 # run the children of this task
-                self.manager.run_task(self._do_child, task_id, resource)
+                self.manager.run_task(
+                    self._do_child, task_id, resource, name=f"child-{task_id}"
+                )
                 await self.manager.wait_finished()
         finally:
             self.logger.info("task-%d: EXITING", task_id)
@@ -111,7 +113,9 @@ class DAGServiceTest(Service):
         child_tasks = self._dag[task_id]
         for child_id in child_tasks:
             resource = self._task_resources[child_id]
-            self.manager.run_task(self._do_task, child_id, resource)
+            self.manager.run_task(
+                self._do_task, child_id, resource, name=f"task-{task_id}"
+            )
 
     async def run(self) -> None:
         # pre-run sanity checks

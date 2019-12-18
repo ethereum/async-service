@@ -7,6 +7,7 @@ from typing import (
     Callable,
     Coroutine,
     Dict,
+    List,
     Optional,
     Tuple,
     TypeVar,
@@ -17,7 +18,7 @@ from async_generator import asynccontextmanager
 import trio
 import trio_typing
 
-from ._utils import get_task_name
+from ._utils import get_task_name, iter_dag
 from .abc import ManagerAPI, ServiceAPI
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
@@ -25,32 +26,64 @@ from .typing import EXC_INFO
 
 
 class TrioManager(BaseManager):
+    _is_cancelled = False
+
     # A nursery for sub tasks and services.  This nursery is cancelled if the
     # service is cancelled but allowed to exit normally if the service exits.
     _task_nursery: trio_typing.Nursery
+
+    _service_task_dag: Dict[trio.hazmat.Task, List[trio.hazmat.Task]]
+    _task_done_events: Dict[trio.hazmat.Task, trio.Event]
+    _task_cancel_scopes: Dict[trio.hazmat.Task, trio.CancelScope]
 
     def __init__(self, service: ServiceAPI) -> None:
         super().__init__(service)
 
         # events
         self._started = trio.Event()
+        self._cancelled = trio.Event()
         self._stopping = trio.Event()
         self._finished = trio.Event()
 
         # locks
         self._run_lock = trio.Lock()
 
+        # DAG tracking
+        self._service_task_dag = {}
+        self._task_cancel_scopes = {}
+        self._task_done_events = {}
+
     #
     # System Tasks
     #
+    async def _handle_cancelled(self) -> None:
+        # Here we iterate over the task DAG such that we cancel the most deeply
+        # nested tasks first ensuring that each has finished completely before
+        # we move onto cancelling the parent tasks.
+        self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
+        await self._cancelled.wait()
+        self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
+
+        for task in iter_dag(self._service_task_dag):
+            cancel_scope = self._task_cancel_scopes[task]
+            done = self._task_done_events[task]
+            cancel_scope.cancel()
+            await done.wait()
+
+        # This finaly cancellation of the task nursery's cancel scope ensures
+        # that nothing is left behind and that the service will reliably exit.
+        self._task_nursery.cancel_scope.cancel()
+
     async def _handle_run(self) -> None:
         """
         Run and monitor the actual :meth:`ServiceAPI.run` method.
 
         In the event that it throws an exception the service will be cancelled.
         """
+        done, cancel_scope = self._track_current_task()
         try:
-            await self._service.run()
+            with cancel_scope:
+                await self._service.run()
         except Exception as err:
             self.logger.debug(
                 "%s: _handle_run got error, storing exception and setting cancelled: %s",
@@ -68,6 +101,8 @@ class TrioManager(BaseManager):
             self.logger.debug(
                 "%s: _handle_run exited cleanly, waiting for full stop...", self
             )
+        finally:
+            done.set()
 
     @classmethod
     async def run_service(cls, service: ServiceAPI) -> None:
@@ -84,22 +119,27 @@ class TrioManager(BaseManager):
 
         try:
             async with self._run_lock:
-                try:
-                    async with trio.open_nursery() as task_nursery:
-                        self._task_nursery = task_nursery
+                async with trio.open_nursery() as system_nursery:
+                    system_nursery.start_soon(self._handle_cancelled)
 
-                        task_nursery.start_soon(self._handle_run)
+                    try:
+                        async with trio.open_nursery() as task_nursery:
+                            self._task_nursery = task_nursery
 
-                        self._started.set()
+                            task_nursery.start_soon(self._handle_run)
 
-                        # ***BLOCKING HERE***
-                        # The code flow will block here until the background tasks have
-                        # completed or cancellation occurs.
-                except Exception:
-                    # Exceptions from any tasks spawned by our service will be caught by trio
-                    # and raised here, so we store them to report together with any others we
-                    # have already captured.
-                    self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                            self._started.set()
+
+                            # ***BLOCKING HERE***
+                            # The code flow will block here until the background tasks have
+                            # completed or cancellation occurs.
+                    except Exception:
+                        # Exceptions from any tasks spawned by our service will be caught by trio
+                        # and raised here, so we store them to report together with any others we
+                        # have already captured.
+                        self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                    finally:
+                        system_nursery.cancel_scope.cancel()
 
         finally:
             # We need this inside a finally because a trio.Cancelled exception may be raised
@@ -128,10 +168,7 @@ class TrioManager(BaseManager):
 
     @property
     def is_cancelled(self) -> bool:
-        if not hasattr(self, "_task_nursery"):
-            return False
-        cancel_scope = self._task_nursery.cancel_scope
-        return cancel_scope.cancel_called or cancel_scope.cancelled_caught
+        return self._cancelled.is_set()
 
     @property
     def is_stopping(self) -> bool:
@@ -147,7 +184,10 @@ class TrioManager(BaseManager):
     def cancel(self) -> None:
         if not self.is_started:
             raise LifecycleError("Cannot cancel as service which was never started.")
-        self._task_nursery.cancel_scope.cancel()
+        elif not self.is_running:
+            return
+        else:
+            self._cancelled.set()
 
     #
     # Wait API
@@ -161,16 +201,44 @@ class TrioManager(BaseManager):
     async def wait_finished(self) -> None:
         await self._finished.wait()
 
+    def _track_current_task(
+        self, parent: trio.hazmat.Task = None
+    ) -> Tuple[trio.Event, trio.CancelScope]:
+        current_task = trio.hazmat.current_task()
+        if parent is not None:
+            # This covers the case for the *root* task which doesn't have a
+            # parent.
+            self._service_task_dag[parent].append(current_task)
+
+        # We use an event to manually track when the child task is "done".
+        # This is because trio has no API for awaiting completion of a task.
+        done = trio.Event()
+        self._task_done_events[current_task] = done
+
+        # Each task gets its own `CancelScope` which is how we can manually
+        # control cancellation order of the task DAG
+        cancel_scope = trio.CancelScope()
+        self._task_cancel_scopes[current_task] = cancel_scope
+
+        # This data structure is setup so that child tasks can *inject*
+        # themselves in as dependencies.
+        self._service_task_dag[current_task] = []
+
+        return done, cancel_scope
+
     async def _run_and_manage_task(
         self,
         async_fn: Callable[..., Awaitable[Any]],
         *args: Any,
         daemon: bool,
         name: str,
+        parent: trio.hazmat.Task,
     ) -> None:
         self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
+        done, cancel_scope = self._track_current_task(parent)
         try:
-            await async_fn(*args)
+            with cancel_scope:
+                await async_fn(*args)
         except Exception as err:
             self.logger.debug(
                 "task '%s[daemon=%s]' exited with error: %s",
@@ -191,6 +259,8 @@ class TrioManager(BaseManager):
                 )
                 self.cancel()
                 raise DaemonTaskExit(f"Daemon task {name} exited")
+        finally:
+            done.set()
 
     def run_task(
         self,
@@ -204,9 +274,15 @@ class TrioManager(BaseManager):
                 "Tasks may not be scheduled if the service is not running"
             )
         task_name = get_task_name(async_fn, name)
+        current_task = trio.hazmat.current_task()
 
         self._task_nursery.start_soon(
-            functools.partial(self._run_and_manage_task, daemon=daemon, name=task_name),
+            functools.partial(
+                self._run_and_manage_task,
+                daemon=daemon,
+                name=task_name,
+                parent=current_task,
+            ),
             async_fn,
             *args,
             name=task_name,
