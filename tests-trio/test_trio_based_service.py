@@ -1,3 +1,4 @@
+from hypothesis import given, strategies as st
 import pytest
 import trio
 
@@ -460,14 +461,29 @@ async def test_trio_service_with_async_generator():
         manager.cancel()
 
 
+@given(
+    parent_yield_count=st.integers(min_value=0, max_value=50),
+    child_yield_count=st.integers(min_value=0, max_value=50),
+)
 @pytest.mark.trio
-async def test_parent_task_terminates_after_child():
-    s = TrioCheckParentAndChildTaskTerminationOrderService()
+async def test_parent_task_terminates_after_child(
+    parent_yield_count, child_yield_count
+):
+    s = TrioCheckParentAndChildTaskTerminationOrderService(
+        parent_yield_count, child_yield_count
+    )
+    assert s.is_active is None
+    print(f'PARENT: {parent_yield_count}  CHILD: {child_yield_count}')
     await TrioManager.run_service(s)
+    assert s.is_active is False
 
 
 class TrioCheckParentAndChildTaskTerminationOrderService(
-        CheckParentAndChildTaskTerminationOrderService):
+    CheckParentAndChildTaskTerminationOrderService
+):
+    event_class = trio.Event
 
-    async def sleep(self, delay):
-        await trio.sleep(delay)
+    async def yield_control(self, count):
+        with trio.CancelScope(shield=True):
+            for _ in range(count):
+                await trio.hazmat.checkpoint()

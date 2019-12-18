@@ -1,39 +1,96 @@
-from async_generator import asynccontextmanager
+from abc import abstractmethod
+import asyncio
+from typing import Any, Type, Union
+
+import trio
 
 from async_service import Service
 
 
 class Resource:
-    is_active = True
+    is_active = None
+    was_checked = False
+
+    def __str__(self) -> str:
+        return f"<Resource[active={self.is_active}]>"
+
+    async def __aenter__(self) -> 'Resource':
+        self.is_active = True
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        self.is_active = False
 
 
 class CheckParentAndChildTaskTerminationOrderService(Service):
-    cancelled_class = None
+    event_class: Union[Type[asyncio.Event], Type[trio.Event]]
+    is_active = None
+    did_check_is_active = False
 
-    async def sleep(self, delay):
-        raise NotImplementedError()
+    def __init__(self, parent_yield_count: int, child_yield_count: int) -> None:
+        self._parent_yield_count = parent_yield_count
+        self._child_yield_count = child_yield_count
+        self._ready_to_cancel_a = self.event_class()
+        self._ready_to_cancel_b = self.event_class()
 
-    async def run(self):
-        self.manager.run_task(self.setup_and_consume_res)
-        # Sleep more than 0 seconds to ensure all our tasks get a chance to run.
-        await self.sleep(0.1)
+    @abstractmethod
+    async def yield_control(self, count: int) -> None:
+        ...
+
+    async def run(self) -> None:
+        self.manager.run_task(self.do_simple_try_finally)
+        self.manager.run_task(self.do_async_resource_check)
+        await self._ready_to_cancel_a.wait()
+        await self._ready_to_cancel_b.wait()
         self.manager.cancel()
 
-    async def setup_and_consume_res(self):
-        async with self.get_resource() as res:
-            self.manager.run_task(self.consume_res, res)
-            await self.sleep(0)
-            await self.manager.wait_finished()
+    #
+    # These two parent and child tasks ensure that a simple `try/finally` in a
+    # parent task will only execute it's `finally` block **after** the child
+    # task has finished.
+    #
+    async def do_simple_try_finally(self) -> None:
+        self.is_active = True
 
-    async def consume_res(self, res):
-        assert res.is_active
         try:
+            self.manager.run_task(self.child_of_simple_try_finally)
             await self.manager.wait_finished()
         finally:
-            assert res.is_active
+            await self.yield_control(self._parent_yield_count)
+            self.is_active = False
+            assert self.did_check_is_active
 
-    @asynccontextmanager
-    async def get_resource(self):
-        res = Resource()
-        yield res
-        res.active = False
+    async def child_of_simple_try_finally(self) -> None:
+        assert self.is_active
+        try:
+            self._ready_to_cancel_a.set()
+            await self.manager.wait_finished()
+        finally:
+            await self.yield_control(self._child_yield_count)
+            assert self.is_active
+            self.did_check_is_active = True
+
+    #
+    #
+    #
+    async def do_async_resource_check(self) -> None:
+        resource = Resource()
+        try:
+            async with resource:
+                assert resource.is_active
+                self.manager.run_task(self.child_resource_consumer, resource)
+                await self.manager.wait_finished()
+        finally:
+            await self.yield_control(self._parent_yield_count)
+            assert not resource.is_active
+            assert resource.was_checked
+
+    async def child_resource_consumer(self, resource: Resource) -> None:
+        assert resource.is_active
+        try:
+            self._ready_to_cancel_b.set()
+            await self.manager.wait_finished()
+        finally:
+            await self.yield_control(self._child_yield_count)
+            assert resource.is_active
+            resource.was_checked = True

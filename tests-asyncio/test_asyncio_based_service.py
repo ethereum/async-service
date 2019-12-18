@@ -1,5 +1,6 @@
 import asyncio
 
+from hypothesis import given, strategies as st
 import pytest
 from trio import MultiError
 
@@ -415,14 +416,27 @@ async def test_asyncio_service_with_async_generator():
         manager.cancel()
 
 
+@given(
+    parent_yield_count=st.integers(min_value=0, max_value=50),
+    child_yield_count=st.integers(min_value=0, max_value=50),
+)
 @pytest.mark.asyncio
-async def test_parent_task_terminates_after_child():
-    s = AsyncioCheckParentAndChildTaskTerminationOrderService()
+async def test_parent_task_terminates_after_child(
+    parent_yield_count, child_yield_count
+):
+    s = AsyncioCheckParentAndChildTaskTerminationOrderService(
+        parent_yield_count, child_yield_count
+    )
+    assert s.is_active is None
     await AsyncioManager.run_service(s)
+    assert s.is_active is False
 
 
 class AsyncioCheckParentAndChildTaskTerminationOrderService(
-        CheckParentAndChildTaskTerminationOrderService):
+    CheckParentAndChildTaskTerminationOrderService
+):
+    event_class = asyncio.Event
 
-    async def sleep(self, delay):
-        await asyncio.sleep(delay)
+    async def yield_control(self, count):
+        for _ in range(count):
+            await asyncio.sleep(0)
