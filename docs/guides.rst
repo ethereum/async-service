@@ -150,7 +150,7 @@ Asynchrounous applications will typically need to run multiple things
 concurrently which implies running things in the *background*.
 
 This is done using the :attr:`~async_service.abc.ServiceAPI.manager`
-attribute which exposes the :meth:`~async_service.abc._InternalManagerAPI.run_task`
+attribute which exposes the :meth:`~async_service.abc.InternalManagerAPI.run_task`
 method.
 
 .. code-block:: python
@@ -176,7 +176,7 @@ Upon exiting, all errors that were encountered while running the service will
 be re-raised.
 
 For slighly nicer logging output you can provide a ``name`` as a keyword
-argument to `~async_service.abc._InternalManagerAPI.run_task` which will be
+argument to `~async_service.abc.InternalManagerAPI.run_task` which will be
 used in logging messages.
 
 
@@ -185,7 +185,7 @@ Daemon Tasks
 
 A *"Daemon"* tasks is one that is intended to run for the full lifecycle of the
 service.  This can be done by passing ``daemon=True`` into the call to
-:meth:`~async_service.abc._InternalManagerAPI.run_task`.
+:meth:`~async_service.abc.InternalManagerAPI.run_task`.
 
 .. code-block:: python
 
@@ -202,7 +202,7 @@ service.  This can be done by passing ``daemon=True`` into the call to
             self.manager.run_daemon_task(self.do_long_running_thing)
 
 
-Alternatively you can use :meth:`~async_service.abc._InternalManagerAPI.run_daemon_task`.
+Alternatively you can use :meth:`~async_service.abc.InternalManagerAPI.run_daemon_task`.
 
 A *"Daemon"* task which finishes before the service is stopping will trigger
 cancellation and result in the
@@ -230,13 +230,13 @@ want to run within a running service.
             child_manager = self.manager.run_child_service(ChildService())
 
 Child services are run using the
-:meth:`~async_service.abc._InternalManagerAPI.run_child_service` method which
+:meth:`~async_service.abc.InternalManagerAPI.run_child_service` method which
 returns the manager for the child service.
 
 There is also a
-:meth:`~async_service.abc._InternalManagerAPI.run_daemon_child_service`
+:meth:`~async_service.abc.InternalManagerAPI.run_daemon_child_service`
 method behaves the same as
-:meth:`~async_service.abc._InternalManagerAPI.run_daemon_task` in that if the
+:meth:`~async_service.abc.InternalManagerAPI.run_daemon_task` in that if the
 child service finishes before the parent service has finished, it will raise a
 :class:`~async_service.exceptions.DaemonTaskExit` exception.
 
