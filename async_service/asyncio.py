@@ -17,9 +17,7 @@ from typing import (
 from async_generator import asynccontextmanager
 from trio import MultiError
 
-from async_service._utils import iter_dag
-
-from ._utils import get_task_name
+from ._utils import get_task_name, iter_dag
 from .abc import ManagerAPI, ServiceAPI
 from .asyncio_compat import get_current_task
 from .base import BaseManager
