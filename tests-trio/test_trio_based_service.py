@@ -471,12 +471,29 @@ async def test_trio_service_with_async_generator():
 
 
 @pytest.mark.trio
+async def test_trio_service_disallows_task_scheduling_when_not_running():
+    class ServiceTest(Service):
+        async def run(self):
+            await self.manager.wait_finished()
+
+        def do_schedule(self):
+            self.manager.run_task(trio.sleep, 1)
+
+    service = ServiceTest()
+
+    async with background_trio_service(service):
+        service.do_schedule()
+
+    with pytest.raises(LifecycleError):
+        service.do_schedule()
+
+
+@pytest.mark.trio
 async def test_trio_service_disallows_task_scheduling_after_cancel():
     @as_service
     async def ServiceTest(manager):
         manager.cancel()
-        with pytest.raises(LifecycleError):
-            manager.run_task(trio.sleep, 1)
+        manager.run_task(trio.sleep, 1)
 
     await TrioManager.run_service(ServiceTest())
 
