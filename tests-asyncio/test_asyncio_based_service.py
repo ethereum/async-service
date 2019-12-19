@@ -15,7 +15,7 @@ from async_service import (
 
 class WaitCancelledService(Service):
     async def run(self) -> None:
-        await self.manager.wait_cancelled()
+        await self.manager.wait_finished()
 
 
 async def do_service_lifecycle_check(
@@ -263,7 +263,7 @@ async def test_asyncio_service_manager_run_task():
             task_event.set()
 
         manager.run_task(task_fn)
-        await manager.wait_cancelled()
+        await manager.wait_finished()
 
     async with background_asyncio_service(RunTaskService()):
         await asyncio.wait_for(task_event.wait(), timeout=0.1)

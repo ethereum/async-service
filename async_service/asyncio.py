@@ -61,7 +61,7 @@ class AsyncioManager(BaseManager):
         background tasks.
         """
         self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
-        await self.wait_cancelled()
+        await self._cancelled.wait()
         self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
 
         # TODO: need new comment here explaining the way we iterate in
@@ -198,9 +198,6 @@ class AsyncioManager(BaseManager):
     #
     async def wait_started(self) -> None:
         await self._started.wait()
-
-    async def wait_cancelled(self) -> None:
-        await self._cancelled.wait()
 
     async def wait_stopping(self) -> None:
         await self._stopping.wait()

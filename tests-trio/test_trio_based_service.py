@@ -167,10 +167,13 @@ async def test_trio_service_lifecycle_run_and_task_exception():
 
 @pytest.mark.trio
 async def test_sub_service_cancelled_when_parent_stops():
+    ready_cancel = trio.Event()
+
     # This test runs a service that runs a sub-service that sleeps forever. When the parent exits,
     # the sub-service should be cancelled as well.
     @as_service
     async def WaitForeverService(manager):
+        ready_cancel.set()
         await manager.wait_finished()
 
     sub_manager = TrioManager(WaitForeverService())
@@ -185,14 +188,14 @@ async def test_sub_service_cancelled_when_parent_stops():
 
     s = ServiceTest()
     async with background_trio_service(s) as manager:
-        await trio.sleep(0.01)
+        await ready_cancel.wait()
 
     assert not manager.is_running
     assert manager.is_cancelled
     assert manager.is_finished
 
     assert not sub_manager.is_running
-    assert sub_manager.is_cancelled
+    assert not sub_manager.is_cancelled
     assert sub_manager.is_finished
 
 
@@ -231,13 +234,20 @@ async def test_multierror_in_run():
 
     class ServiceTest(Service):
         async def run(self):
-            self.manager.run_daemon_task(self.daemon_task_fn)
-            await trio.sleep(0.1)  # Give a chance for our daemon task to be scheduled.
+            in_daemon = trio.Event()
+            self.manager.run_daemon_task(self.daemon_task_fn, in_daemon)
             trigger_error.set()
+            await in_daemon.wait()
             raise RuntimeError("Exception inside Service.run()")
 
-        async def daemon_task_fn(self):
-            await trigger_error.wait()
+        async def daemon_task_fn(self, in_daemon):
+            try:
+                await trigger_error.wait()
+            finally:
+                in_daemon.set()
+                # this yields *briefly* to allow the main `run()` to error at
+                # basically the same moment this exits.
+                await trio.hazmat.checkpoint()
 
     with pytest.raises(trio.MultiError) as exc_info:
         await TrioManager.run_service(ServiceTest())
@@ -452,7 +462,7 @@ async def test_trio_service_with_async_generator():
     @as_service
     async def ServiceTest(manager):
         async for _ in do_agen():  # noqa: F841
-            await trio.sleep(0)
+            await trio.hazmat.checkpoint()
             is_within_agen.set()
 
     async with background_trio_service(ServiceTest()) as manager:
@@ -469,3 +479,22 @@ async def test_trio_service_disallows_task_scheduling_after_cancel():
             manager.run_task(trio.sleep, 1)
 
     await TrioManager.run_service(ServiceTest())
+
+
+@pytest.mark.trio
+async def test_trio_service_cancellation_with_running_daemon_task():
+    in_daemon = trio.Event()
+
+    class ServiceTest(Service):
+        async def run(self):
+            self.manager.run_daemon_task(self._do_daemon)
+            await self.manager.wait_finished()
+
+        async def _do_daemon(self):
+            in_daemon.set()
+            while self.manager.is_running:
+                await trio.hazmat.checkpoint()
+
+    async with background_trio_service(ServiceTest()) as manager:
+        await in_daemon.wait()
+        manager.cancel()
