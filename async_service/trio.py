@@ -26,8 +26,6 @@ from .typing import EXC_INFO
 
 
 class TrioManager(BaseManager):
-    _is_cancelled = False
-
     # A nursery for sub tasks and services.  This nursery is cancelled if the
     # service is cancelled but allowed to exit normally if the service exits.
     _task_nursery: trio_typing.Nursery
@@ -238,27 +236,28 @@ class TrioManager(BaseManager):
         done, cancel_scope = self._track_current_task(parent)
         try:
             with cancel_scope:
-                await async_fn(*args)
-        except Exception as err:
-            self.logger.debug(
-                "task '%s[daemon=%s]' exited with error: %s",
-                name,
-                daemon,
-                err,
-                exc_info=True,
-            )
-            self._errors.append(cast(EXC_INFO, sys.exc_info()))
-            self.cancel()
-        else:
-            self.logger.debug("task '%s[daemon=%s]' finished.", name, daemon)
-            if daemon:
-                self.logger.debug(
-                    "daemon task '%s' exited unexpectedly.  Cancelling service: %s",
-                    name,
-                    self,
-                )
-                self.cancel()
-                raise DaemonTaskExit(f"Daemon task {name} exited")
+                try:
+                    await async_fn(*args)
+                except Exception as err:
+                    self.logger.debug(
+                        "task '%s[daemon=%s]' exited with error: %s",
+                        name,
+                        daemon,
+                        err,
+                        exc_info=True,
+                    )
+                    self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                    self.cancel()
+                else:
+                    self.logger.debug("task '%s[daemon=%s]' finished.", name, daemon)
+                    if daemon:
+                        self.logger.debug(
+                            "daemon task '%s' exited unexpectedly.  Cancelling service: %s",
+                            name,
+                            self,
+                        )
+                        self.cancel()
+                        raise DaemonTaskExit(f"Daemon task {name} exited")
         finally:
             done.set()
 

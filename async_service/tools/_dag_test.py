@@ -46,6 +46,8 @@ class DAGServiceTest(Service):
     correct order.
     """
 
+    all_checks_passed = False
+
     logger = logging.getLogger("async_service.testing.DAGServiceTest")
 
     event_class: Union[Type[trio.Event], Type[asyncio.Event]]
@@ -71,8 +73,6 @@ class DAGServiceTest(Service):
         }
         self._task_resources = {task_id: Resource() for task_id in self._dag.keys()}
 
-        self.sanity_flag = False
-
     async def _do_task(self, task_id: int, resource: Resource) -> None:
         self.logger.info("task-%d: START", task_id)
         assert not resource.is_active
@@ -87,6 +87,9 @@ class DAGServiceTest(Service):
                 await self.manager.wait_finished()
         finally:
             self.logger.info("task-%d: EXITING", task_id)
+            # we yield execution a random number of times to ensure that the
+            # order that these tasks were cued doesn't effect the desired
+            # functionality.
             await self.yield_execution(random.randint(0, 100))
             assert not resource.is_active
             assert resource.was_checked
@@ -98,24 +101,29 @@ class DAGServiceTest(Service):
         assert not resource.was_checked
 
         try:
-            self._run_children(task_id)
+            await self._run_children(task_id)
             self._child_tasks_all_ready_events[task_id].set()
             self.logger.info("child-%d: RUNNING", task_id)
             await self.manager.wait_finished()
         finally:
             self.logger.info("child-%d: EXITING", task_id)
+            # we yield execution a random number of times to ensure that the
+            # order that these tasks were cued doesn't effect the desired
+            # functionality.
             await self.yield_execution(random.randint(0, 100))
             assert resource.is_active
             resource.was_checked = True
             self.logger.info("child-%d: FINISHED", task_id)
 
-    def _run_children(self, task_id: int) -> None:
+    async def _run_children(self, task_id: int) -> None:
         child_tasks = self._dag[task_id]
         for child_id in child_tasks:
             resource = self._task_resources[child_id]
             self.manager.run_task(
                 self._do_task, child_id, resource, name=f"task-{task_id}"
             )
+            is_running_event = self._child_tasks_all_ready_events[child_id]
+            await is_running_event.wait()
 
     async def run(self) -> None:
         # pre-run sanity checks
@@ -138,4 +146,4 @@ class DAGServiceTest(Service):
             for task_id, resource in self._task_resources.items():
                 if resource.was_checked is not True:
                     raise AssertionError(f"Resource for task-{task_id} was not checked")
-            self.sanity_flag = True
+            self.all_checks_passed = True

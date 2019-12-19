@@ -22,7 +22,7 @@ class TrioDAGServiceTest(DAGServiceTest):
 async def test_trio_service_task_cancellation_dag_order():
     # all of the assertions happen within the body of the service.
     service = TrioDAGServiceTest()
-    assert service.sanity_flag is False
+    assert service.all_checks_passed is False
     async with background_trio_service(service):
         await service.ready_cancel()
-    assert service.sanity_flag is True
+    assert service.all_checks_passed is True
