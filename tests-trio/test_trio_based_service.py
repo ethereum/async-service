@@ -498,3 +498,72 @@ async def test_trio_service_cancellation_with_running_daemon_task():
     async with background_trio_service(ServiceTest()) as manager:
         await in_daemon.wait()
         manager.cancel()
+
+
+@pytest.mark.trio
+async def test_trio_service_with_try_finally_cleanup():
+    ready_cancel = trio.Event()
+
+    class TryFinallyService(Service):
+        cleanup_up = False
+
+        async def run(self) -> None:
+            try:
+                ready_cancel.set()
+                await self.manager.wait_finished()
+            finally:
+                self.cleanup_up = True
+
+    service = TryFinallyService()
+    async with background_trio_service(service) as manager:
+        await ready_cancel.wait()
+        assert not service.cleanup_up
+        manager.cancel()
+    assert service.cleanup_up
+
+
+@pytest.mark.trio
+async def test_trio_service_with_try_finally_cleanup_with_unshielded_await():
+    ready_cancel = trio.Event()
+
+    class TryFinallyService(Service):
+        cleanup_up = False
+
+        async def run(self) -> None:
+            try:
+                ready_cancel.set()
+                await self.manager.wait_finished()
+            finally:
+                await trio.hazmat.checkpoint()
+                self.cleanup_up = True
+
+    service = TryFinallyService()
+    async with background_trio_service(service) as manager:
+        await ready_cancel.wait()
+        assert not service.cleanup_up
+        manager.cancel()
+    assert not service.cleanup_up
+
+
+@pytest.mark.trio
+async def test_trio_service_with_try_finally_cleanup_with_shielded_await():
+    ready_cancel = trio.Event()
+
+    class TryFinallyService(Service):
+        cleanup_up = False
+
+        async def run(self) -> None:
+            try:
+                ready_cancel.set()
+                await self.manager.wait_finished()
+            finally:
+                with trio.CancelScope(shield=True):
+                    await trio.hazmat.checkpoint()
+                self.cleanup_up = True
+
+    service = TryFinallyService()
+    async with background_trio_service(service) as manager:
+        await ready_cancel.wait()
+        assert not service.cleanup_up
+        manager.cancel()
+    assert service.cleanup_up

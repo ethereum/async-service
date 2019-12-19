@@ -424,3 +424,48 @@ async def test_asyncio_service_disallows_task_scheduling_after_cancel():
             manager.run_task(asyncio.sleep, 1)
 
     await AsyncioManager.run_service(ServiceTest())
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_with_try_finally_cleanup():
+    ready_cancel = asyncio.Event()
+
+    class TryFinallyService(Service):
+        cleanup_up = False
+
+        async def run(self) -> None:
+            try:
+                ready_cancel.set()
+                await self.manager.wait_finished()
+            finally:
+                self.cleanup_up = True
+
+    service = TryFinallyService()
+    async with background_asyncio_service(service) as manager:
+        await ready_cancel.wait()
+        assert not service.cleanup_up
+        manager.cancel()
+    assert service.cleanup_up
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_with_try_finally_cleanup_with_await():
+    ready_cancel = asyncio.Event()
+
+    class TryFinallyService(Service):
+        cleanup_up = False
+
+        async def run(self) -> None:
+            try:
+                ready_cancel.set()
+                await self.manager.wait_finished()
+            finally:
+                await asyncio.sleep(0)
+                self.cleanup_up = True
+
+    service = TryFinallyService()
+    async with background_asyncio_service(service) as manager:
+        await ready_cancel.wait()
+        assert not service.cleanup_up
+        manager.cancel()
+    assert service.cleanup_up
