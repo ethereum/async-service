@@ -97,3 +97,24 @@ async def test_asyncio_service_external_api_raises_when_finished():
     # return mechanism.
     with pytest.raises(ServiceCancelled):
         assert await service.get_7()
+
+
+@pytest.mark.asyncio
+async def test_asyncio_external_api_call_that_schedules_task():
+    done = asyncio.Event()
+
+    class MyService(Service):
+        async def run(self):
+            await self.manager.wait_finished()
+
+        @external_api
+        async def do_scheduling(self):
+            self.manager.run_task(self.set_done)
+
+        async def set_done(self):
+            done.set()
+
+    service = MyService()
+    async with background_asyncio_service(service):
+        await service.do_scheduling()
+        await asyncio.wait_for(done.wait(), timeout=1)

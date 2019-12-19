@@ -126,9 +126,9 @@ class AsyncioManager(BaseManager):
                 self._system_tasks.add(handle_cancelled_task)
                 self._system_tasks.add(handle_stopping_task)
 
-                self.run_task(self._service.run, _root=True)
-
                 self._started.set()
+
+                self.run_task(self._service.run)
 
                 # block here until all service tasks have finished
                 await self._wait_service_tasks()
@@ -249,24 +249,22 @@ class AsyncioManager(BaseManager):
         *args: Any,
         daemon: bool = False,
         name: str = None,
-        _root: bool = False,
     ) -> None:
-        if not _root and (not self.is_running or self.is_cancelled):
+        if not self.is_running or self.is_cancelled:
             raise LifecycleError(
                 "Tasks may not be scheduled if the service is not running"
             )
-        current_task = get_current_task()
-        if not _root and current_task not in self._service_task_dag:
-            raise Exception(f"TODO: unknown task {current_task}")
         task_name = get_task_name(async_fn, name)
 
         task = asyncio.ensure_future(
             self._run_and_manage_task(async_fn, *args, daemon=daemon, name=task_name),
             loop=self._loop,
         )
+
+        parent_task = get_current_task()
         self._service_task_dag[task] = []
-        if not _root:
-            self._service_task_dag[current_task].append(task)
+        if parent_task in self._service_task_dag:
+            self._service_task_dag[parent_task].append(task)
 
     def run_child_service(
         self, service: ServiceAPI, daemon: bool = False, name: str = None
