@@ -265,6 +265,8 @@ class AsyncioManager(BaseManager):
         self._service_task_dag[task] = []
         if parent_task in self._service_task_dag:
             self._service_task_dag[parent_task].append(task)
+        else:
+            self.logger.debug("New root task %s[daemon=%s] added to DAG", task, daemon)
 
     def run_child_service(
         self, service: ServiceAPI, daemon: bool = False, name: str = None
