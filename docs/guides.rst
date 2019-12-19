@@ -22,7 +22,7 @@ All application logic must be encapslated in a
     await run_asyncio_service(MyApplication())
 
 
-You can also run services in the background while you do other things.
+You can also run services in the background while we do other things.
 
 .. code-block:: python
 
@@ -126,7 +126,7 @@ state.
         await manager.wait_finished()
 
 
-The :class:`~async_service.abc.ManagerAPI` also allows you to control the service.
+The :class:`~async_service.abc.ManagerAPI` also allows us to control the service.
 
 
 .. code-block:: python
@@ -175,8 +175,8 @@ If a task raises an exception it will trigger cancellation of the service.
 Upon exiting, all errors that were encountered while running the service will
 be re-raised.
 
-For slighly nicer logging output you can provide a ``name`` as a keyword
-argument to `~async_service.abc.InternalManagerAPI.run_task` which will be
+For slighly nicer logging output we can provide a ``name`` as a keyword
+argument to `~async_service.abc._InternalManagerAPI.run_task` which will be
 used in logging messages.
 
 
@@ -202,7 +202,7 @@ service.  This can be done by passing ``daemon=True`` into the call to
             self.manager.run_daemon_task(self.do_long_running_thing)
 
 
-Alternatively you can use :meth:`~async_service.abc.InternalManagerAPI.run_daemon_task`.
+Alternatively we can use :meth:`~async_service.abc._InternalManagerAPI.run_daemon_task`.
 
 A *"Daemon"* task which finishes before the service is stopping will trigger
 cancellation and result in the
@@ -213,7 +213,7 @@ cancellation and result in the
 Child Services
 --------------
 
-Child services are like tasks, except that they are other services that you
+Child services are like tasks, except that they are other services that we
 want to run within a running service.
 
 
@@ -254,7 +254,7 @@ being a child of whatever parent coroutine spawned it.
 
 When the service is cancelled, these tasks are cancelled by traversing the task
 DAG starting at the leaves and working up towards the root.  This provides a
-guarantee that if your ``run()`` method spawns multiple backound tasks, that
+guarantee that if the ``run()`` method spawns multiple backound tasks, that
 the background tasks will be cancelled before the ``run()`` method is
 cancelled.
 
@@ -265,7 +265,7 @@ cancelled.
 External Service APIs
 ---------------------
 
-Sometimes you may want to expose an API from a
+Sometimes we may want to expose an API from a
 :class:`~async_service.base.Service` for external callers such that the call
 should only work if the service is running, and calls should fail or be
 terminated if the service is cancelled or finishes.
@@ -304,3 +304,77 @@ decorator.
 
 When a method decorated with :func:`~async_service.external_asyncio_api` fails
 it raises an :class:`async_service.exceptions.ServiceCancelled` exception.
+
+Cleanup logic
+-------------
+
+In the case that we need to run some logic **after** the service has finished
+running but **before** the service has registered as finished we can do so with
+the following patterns.  However, special care and consideration should be
+taken as the following patterns can result in the application hanging when we
+try to shut it down.
+
+The basic idea is to use a ``try/finally`` expression in we main
+``Service.run()`` method.  Since services track and shutdown their tasks using
+a DAG, the code in the ``finally`` block is guaranteed to run after everything
+else has stopped.
+
+.. code-block:: python
+
+    from async_service import Service
+
+    class CleanupService(Service):
+        async def run(self) -> None:
+            try:
+                ...  # do main service logic here
+            finally:
+                ...  # do cleanup logic here
+
+
+For those running under ``trio`` it is worth noting that if the cleanup logic
+needs to ``await`` anything we will probably need to shield it from further
+cancellations.
+
+
+.. code-block:: python
+
+    
+    from async_service import Service
+
+    class CleanupService(Service):
+        async def run(self) -> None:
+            try:
+                ...  # do main service logic here
+            finally:
+                with trio.CancelScope(shield=True):
+                    ...  # do cleanup logic here
+
+
+It is relatively trivial to implement a reusable pattern for doing cleanup.
+
+
+.. code-block:: python
+
+    
+    from async_service import Service
+
+    class CleanupService(Service):
+        async def run(self) -> None:
+            try:
+                ...  # do main service logic here
+            except:
+                await self.on_error()
+                raise
+            else:
+                await self.on_success()
+            finally:
+                await self.on_finally()
+
+        async def on_success(self) -> None:
+            pass
+        
+        async def on_error(self) -> None:
+            pass
+
+        async def on_finally(self) -> None:
+            pass
