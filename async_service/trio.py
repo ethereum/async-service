@@ -78,7 +78,7 @@ class TrioManager(BaseManager):
 
         In the event that it throws an exception the service will be cancelled.
         """
-        done, cancel_scope = self._track_current_task()
+        done, cancel_scope = self._track_current_task(parent=trio.hazmat.current_task())
         try:
             with cancel_scope:
                 await self._service.run()
@@ -200,12 +200,10 @@ class TrioManager(BaseManager):
         await self._finished.wait()
 
     def _track_current_task(
-        self, parent: trio.hazmat.Task = None
+        self, parent: trio.hazmat.Task
     ) -> Tuple[trio.Event, trio.CancelScope]:
         current_task = trio.hazmat.current_task()
-        if parent is not None:
-            # This covers the case for the *root* task which doesn't have a
-            # parent.
+        if parent in self._service_task_dag:
             self._service_task_dag[parent].append(current_task)
 
         # We use an event to manually track when the child task is "done".
@@ -234,6 +232,9 @@ class TrioManager(BaseManager):
     ) -> None:
         self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
         done, cancel_scope = self._track_current_task(parent)
+        if parent not in self._service_task_dag:
+            self.logger.debug("New root task %s[daemon=%s] added to DAG", name, daemon)
+
         try:
             with cancel_scope:
                 try:
