@@ -75,3 +75,25 @@ async def test_trio_service_external_api_raises_when_finished():
     # return mechanism.
     with pytest.raises(ServiceCancelled):
         assert await service.get_7()
+
+
+@pytest.mark.trio
+async def test_trio_external_api_call_that_schedules_task():
+    done = trio.Event()
+
+    class MyService(Service):
+        async def run(self):
+            await self.manager.wait_finished()
+
+        @external_api
+        async def do_scheduling(self):
+            self.manager.run_task(self.set_done)
+
+        async def set_done(self):
+            done.set()
+
+    service = MyService()
+    async with background_trio_service(service):
+        await service.do_scheduling()
+        with trio.fail_after(1):
+            await done.wait()
