@@ -49,6 +49,19 @@ class BaseManager(InternalManagerAPI):
         # errors
         self._errors = []
 
+    def __str__(self) -> str:
+        return (
+            "<Manager  "
+            f"service={self._service}  "
+            f"started={self.is_started}  "
+            f"running={self.is_running}  "
+            f"cancelled={self.is_cancelled}  "
+            f"stopping={self.is_stopping}  "
+            f"finished={self.is_finished}  "
+            f"did_error={self.did_error}"
+            ">"
+        )
+
     #
     # Event API mirror
     #
