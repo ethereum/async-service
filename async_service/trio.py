@@ -279,7 +279,17 @@ class TrioManager(BaseManager):
             raise LifecycleError(
                 "Tasks may not be scheduled if the service is not running"
             )
+
         task_name = get_task_name(async_fn, name)
+        if self.is_running and self.is_cancelled:
+            self.logger.debug(
+                "Service is in the process of being cancelled. Not running task "
+                "%s[daemon=%s]",
+                task_name,
+                daemon,
+            )
+            return
+
         current_task = trio.hazmat.current_task()
 
         self._task_nursery.start_soon(
