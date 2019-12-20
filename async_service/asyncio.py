@@ -64,9 +64,16 @@ class AsyncioManager(BaseManager):
         await self._cancelled.wait()
         self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
 
-        # TODO: need new comment here explaining the way we iterate in
-        # dependency first order.
-        for task in iter_dag(self._service_task_dag):
+        # Here we iterate over the task DAG such that we cancel the most deeply
+        # nested tasks first ensuring that each has finished completely before
+        # we move onto cancelling the parent tasks.
+        #
+        # We have to make a copy of the task dag because it is possible that
+        # there is a task which has just been scheduled. In this case the new
+        # task will end up being cancelled as part of it's parent task's cancel
+        # scope, **or** if it was scheduled by an external API call it will be
+        # cancelled as part of the global task nursery's cancellation.
+        for task in iter_dag(self._service_task_dag.copy()):
             if not task.done():
                 task.cancel()
 
@@ -245,19 +252,29 @@ class AsyncioManager(BaseManager):
         daemon: bool = False,
         name: str = None,
     ) -> None:
-        if not self.is_running or self.is_cancelled:
+        if not self.is_running:
             raise LifecycleError(
                 "Tasks may not be scheduled if the service is not running"
             )
+
         task_name = get_task_name(async_fn, name)
+
+        if self.is_running and self.is_cancelled:
+            self.logger.debug(
+                "Service is in the process of being cancelled. Not running task "
+                "%s[daemon=%s]",
+                task_name,
+                daemon,
+            )
+            return
 
         task = asyncio.ensure_future(
             self._run_and_manage_task(async_fn, *args, daemon=daemon, name=task_name),
             loop=self._loop,
         )
+        self._service_task_dag[task] = []
 
         parent_task = get_current_task()
-        self._service_task_dag[task] = []
         if parent_task in self._service_task_dag:
             self._service_task_dag[parent_task].append(task)
         else:

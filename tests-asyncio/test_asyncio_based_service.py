@@ -416,12 +416,32 @@ async def test_asyncio_service_with_async_generator():
 
 
 @pytest.mark.asyncio
-async def test_asyncio_service_disallows_task_scheduling_after_cancel():
+async def test_asyncio_service_disallows_task_scheduling_when_not_running():
+    class ServiceTest(Service):
+        async def run(self):
+            await self.manager.wait_finished()
+
+        def do_schedule(self):
+            self.manager.run_task(asyncio.sleep, 1)
+
+    service = ServiceTest()
+
+    async with background_asyncio_service(service):
+        service.do_schedule()
+
+    with pytest.raises(LifecycleError):
+        service.do_schedule()
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_allows_task_scheduling_after_cancel():
+    # We need to ensure that task scheduling after a call to cancel still
+    # works.  The scheduled tasks won't end up running but we can't prevent
+    # this race condition from occuring during shutdown.
     @as_service
     async def ServiceTest(manager):
         manager.cancel()
-        with pytest.raises(LifecycleError):
-            manager.run_task(asyncio.sleep, 1)
+        manager.run_task(asyncio.sleep, 1)
 
     await AsyncioManager.run_service(ServiceTest())
 
