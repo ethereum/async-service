@@ -53,7 +53,7 @@ with open('./README.md') as readme:
 setup(
     name='async-service',
     # *IMPORTANT*: Don't manually change the version here. Use `make bump`, as described in readme
-    version='0.1.0-alpha.3',
+    version='0.1.0-alpha.4',
     description="""async-service: Lifecycle management for async applications""",
     long_description=long_description,
     long_description_content_type='text/markdown',
