@@ -314,7 +314,7 @@ the following patterns.  However, special care and consideration should be
 taken as the following patterns can result in the application hanging when we
 try to shut it down.
 
-The basic idea is to use a ``try/finally`` expression in we main
+The basic idea is to use a ``try/finally`` expression in our main
 ``Service.run()`` method.  Since services track and shutdown their tasks using
 a DAG, the code in the ``finally`` block is guaranteed to run after everything
 else has stopped.
