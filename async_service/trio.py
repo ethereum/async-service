@@ -324,9 +324,9 @@ async def _wait_stopping_or_finished(
     api_func: Callable[..., Any],
     channel: trio.abc.SendChannel[_ChannelPayload],
 ) -> None:
-    manager = service.manager
+    manager = service.get_manager()
 
-    if service.manager.is_stopping or service.manager.is_finished:
+    if manager.is_stopping or manager.is_finished:
         await channel.send(
             (
                 None,
@@ -339,7 +339,7 @@ async def _wait_stopping_or_finished(
         )
         return
 
-    await service.manager.wait_stopping()
+    await manager.wait_stopping()
     await channel.send(
         (
             None,
@@ -380,7 +380,7 @@ def external_api(func: TFunc) -> TFunc:
                 f"Cannot access external API {func}.  Service has not been run."
             )
 
-        manager = self.manager
+        manager = self.get_manager()
 
         if not manager.is_running:
             raise ServiceCancelled(

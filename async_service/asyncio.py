@@ -333,7 +333,7 @@ def external_api(func: TFunc) -> TFunc:
                 f"Cannot access external API {func}.  Service has not been run."
             )
 
-        manager = self.manager
+        manager = self.get_manager()
 
         if not manager.is_running:
             raise ServiceCancelled(

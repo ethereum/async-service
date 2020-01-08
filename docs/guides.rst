@@ -149,7 +149,7 @@ Tasks
 Asynchrounous applications will typically need to run multiple things
 concurrently which implies running things in the *background*.
 
-This is done using the :attr:`~async_service.abc.ServiceAPI.manager`
+This is done using the :attr:`~async_service.base.Service.manager`
 attribute which exposes the :meth:`~async_service.abc.InternalManagerAPI.run_task`
 method.
 
@@ -164,7 +164,7 @@ method.
 
         async def run(self):
             for url in URLS_TO_FETCH:
-                self.manager.run_task(fetch_url, url)
+                self._manager.run_task(fetch_url, url)
 
 The example above shows a service that concurrently fetches multiple URLS
 concurrently.  These *tasks* will be scheduled and run in the background.  The

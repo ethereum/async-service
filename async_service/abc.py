@@ -5,7 +5,17 @@ import trio_typing
 
 
 class ServiceAPI(ABC):
-    manager: "InternalManagerAPI"
+    _manager: "InternalManagerAPI"
+
+    @abstractmethod
+    def get_manager(self) -> "ManagerAPI":
+        """
+        External retrieval of the manager for this service.
+
+        Will raise a :class:`~async_service.exceptions.LifecycleError` if the
+        service does not yet have a `manager` assigned to it.
+        """
+        ...
 
     @abstractmethod
     async def run(self) -> None:

@@ -7,7 +7,7 @@ from async_service.trio import external_api
 
 class ExternalAPIService(Service):
     async def run(self):
-        await self.manager.wait_finished()
+        await self._manager.wait_finished()
 
     @external_api
     async def get_7(self, wait_return=None, signal_event=None):
@@ -83,11 +83,11 @@ async def test_trio_external_api_call_that_schedules_task():
 
     class MyService(Service):
         async def run(self):
-            await self.manager.wait_finished()
+            await self._manager.wait_finished()
 
         @external_api
         async def do_scheduling(self):
-            self.manager.run_task(self.set_done)
+            self._manager.run_task(self.set_done)
 
         async def set_done(self):
             done.set()

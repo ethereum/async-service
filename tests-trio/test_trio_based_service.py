@@ -13,7 +13,7 @@ from async_service import (
 
 class WaitCancelledService(Service):
     async def run(self) -> None:
-        await self.manager.wait_finished()
+        await self._manager.wait_finished()
 
 
 async def do_service_lifecycle_check(
@@ -235,7 +235,7 @@ async def test_multierror_in_run():
     class ServiceTest(Service):
         async def run(self):
             in_daemon = trio.Event()
-            self.manager.run_daemon_task(self.daemon_task_fn, in_daemon)
+            self._manager.run_daemon_task(self.daemon_task_fn, in_daemon)
             trigger_error.set()
             await in_daemon.wait()
             raise RuntimeError("Exception inside Service.run()")
@@ -265,7 +265,7 @@ async def test_trio_service_background_service_context_manager():
     async with background_trio_service(service) as manager:
         # ensure the manager property is set.
         assert hasattr(service, "manager")
-        assert service.manager is manager
+        assert service.get_manager() is manager
 
         assert manager.is_started is True
         assert manager.is_running is True
