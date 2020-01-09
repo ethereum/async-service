@@ -7,7 +7,25 @@ from .typing import EXC_INFO
 
 
 class Service(ServiceAPI):
-    pass
+    @property
+    def manager(self) -> "InternalManagerAPI":
+        """
+        Expose the manager as a property here intead of
+        :class:`async_service.abc.ServiceAPI` to ensure that anyone using
+        proper type hints will not have access to this property since it isn't
+        part of that API, while still allowing all subclasses of the
+        :class:`async_service.base.Service` to access this property directly.
+        """
+        return self._manager
+
+    def get_manager(self) -> ManagerAPI:
+        try:
+            return self._manager
+        except AttributeError:
+            raise LifecycleError(
+                "Service does not have a manager assigned to it.  Are you sure "
+                "it is running?"
+            )
 
 
 LogicFnType = Callable[..., Awaitable[Any]]
@@ -39,10 +57,10 @@ class BaseManager(InternalManagerAPI):
     _errors: List[EXC_INFO]
 
     def __init__(self, service: ServiceAPI) -> None:
-        if hasattr(service, "manager"):
+        if hasattr(service, "_manager"):
             raise LifecycleError("Service already has a manager.")
         else:
-            service.manager = self
+            service._manager = self
 
         self._service = service
 

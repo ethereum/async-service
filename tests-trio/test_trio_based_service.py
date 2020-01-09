@@ -265,7 +265,7 @@ async def test_trio_service_background_service_context_manager():
     async with background_trio_service(service) as manager:
         # ensure the manager property is set.
         assert hasattr(service, "manager")
-        assert service.manager is manager
+        assert service.get_manager() is manager
 
         assert manager.is_started is True
         assert manager.is_running is True

@@ -149,7 +149,7 @@ Tasks
 Asynchrounous applications will typically need to run multiple things
 concurrently which implies running things in the *background*.
 
-This is done using the :attr:`~async_service.abc.ServiceAPI.manager`
+This is done using the :attr:`~async_service.base.Service.manager`
 attribute which exposes the :meth:`~async_service.abc.InternalManagerAPI.run_task`
 method.
 
