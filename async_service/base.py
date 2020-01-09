@@ -15,8 +15,6 @@ class Service(ServiceAPI):
         proper type hints will not have access to this property since it isn't
         part of that API, while still allowing all subclasses of the
         :class:`async_service.base.Service` to access this property directly.
-
-        This allows for
         """
         return self._manager
 
@@ -59,7 +57,7 @@ class BaseManager(InternalManagerAPI):
     _errors: List[EXC_INFO]
 
     def __init__(self, service: ServiceAPI) -> None:
-        if hasattr(service, "manager"):
+        if hasattr(service, "_manager"):
             raise LifecycleError("Service already has a manager.")
         else:
             service._manager = self

@@ -164,7 +164,7 @@ method.
 
         async def run(self):
             for url in URLS_TO_FETCH:
-                self._manager.run_task(fetch_url, url)
+                self.manager.run_task(fetch_url, url)
 
 The example above shows a service that concurrently fetches multiple URLS
 concurrently.  These *tasks* will be scheduled and run in the background.  The

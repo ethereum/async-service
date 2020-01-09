@@ -13,7 +13,7 @@ from async_service import (
 
 class WaitCancelledService(Service):
     async def run(self) -> None:
-        await self._manager.wait_finished()
+        await self.manager.wait_finished()
 
 
 async def do_service_lifecycle_check(
@@ -235,7 +235,7 @@ async def test_multierror_in_run():
     class ServiceTest(Service):
         async def run(self):
             in_daemon = trio.Event()
-            self._manager.run_daemon_task(self.daemon_task_fn, in_daemon)
+            self.manager.run_daemon_task(self.daemon_task_fn, in_daemon)
             trigger_error.set()
             await in_daemon.wait()
             raise RuntimeError("Exception inside Service.run()")
