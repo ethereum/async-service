@@ -305,6 +305,7 @@ decorator.
 When a method decorated with :func:`~async_service.external_asyncio_api` fails
 it raises an :class:`async_service.exceptions.ServiceCancelled` exception.
 
+
 Cleanup logic
 -------------
 
@@ -378,3 +379,21 @@ It is relatively trivial to implement a reusable pattern for doing cleanup.
 
         async def on_finally(self) -> None:
             pass
+
+
+Stats
+-----
+
+The :class:`~async_service.abc.ManagerAPI` exposes a
+:meth:`~async_service.abc.ManagerAPI.stats` method which returns a
+:class:`~async_service.stats.Stats` object with basic stats about the running
+service.
+
+.. code-block:: python
+
+    async with background_asyncio_service(MyService) as manager:
+        stats = manager.stats
+
+        print(f"Total running tasks: {stats.total_count}")
+        print(f"Finished tasks: {stats.finished_count}")
+        print(f"Pending tasks: {stats.pending_count}")

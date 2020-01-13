@@ -22,6 +22,7 @@ from .abc import ManagerAPI, ServiceAPI
 from .asyncio_compat import get_current_task
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
+from .stats import Stats, TaskStats
 from .typing import EXC_INFO
 
 
@@ -289,6 +290,16 @@ class AsyncioManager(BaseManager):
         task_name = get_task_name(service, name)
         self.run_task(child_manager.run, daemon=daemon, name=task_name)
         return child_manager
+
+    @property
+    def stats(self) -> Stats:
+        total_count = max(0, len(self._service_task_dag) - 1)
+        finished_count = min(
+            total_count, len([task for task in self._service_task_dag if task.done()])
+        )
+        return Stats(
+            tasks=TaskStats(total_count=total_count, finished_count=finished_count)
+        )
 
 
 @asynccontextmanager
