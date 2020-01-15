@@ -22,6 +22,7 @@ from ._utils import get_task_name, iter_dag
 from .abc import ManagerAPI, ServiceAPI
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
+from .stats import Stats, TaskStats
 from .typing import EXC_INFO
 
 
@@ -311,6 +312,27 @@ class TrioManager(BaseManager):
         task_name = get_task_name(service, name)
         self.run_task(child_manager.run, daemon=daemon, name=task_name)
         return child_manager
+
+    @property
+    def stats(self) -> Stats:
+        # The `max` call here ensures that if this is called prior to the
+        # `Service.run` method starting we don't return `-1`
+        total_count = max(0, len(self._service_task_dag) - 1)
+
+        # Since we track `Service.run` as a task, the `min` call here ensures
+        # that when the service is fully done that we don't represent the
+        # `Service.run` method in this count.
+        #
+        # TODO: There is currenty a case where the service is still running but
+        # the `Service.run` method has finished where this will show an
+        # inflated number of finished tasks.
+        finished_count = min(
+            total_count,
+            len([event for event in self._task_done_events.values() if event.is_set()]),
+        )
+        return Stats(
+            tasks=TaskStats(total_count=total_count, finished_count=finished_count)
+        )
 
 
 TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, Any]])

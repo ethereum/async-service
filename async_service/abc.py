@@ -3,6 +3,8 @@ from typing import Any, Awaitable, Callable
 
 import trio_typing
 
+from .stats import Stats
+
 
 class ServiceAPI(ABC):
     _manager: "InternalManagerAPI"
@@ -151,6 +153,14 @@ class ManagerAPI(ABC):
     async def run(self) -> None:
         """
         Run a service
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def stats(self) -> Stats:
+        """
+        Return a stats object with details about the service.
         """
         ...
 
