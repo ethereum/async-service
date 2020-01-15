@@ -8,7 +8,6 @@ from typing import (
     Callable,
     Coroutine,
     Dict,
-    List,
     Set,
     TypeVar,
     cast,
@@ -22,7 +21,6 @@ from .abc import ManagerAPI, ServiceAPI
 from .asyncio_compat import get_current_task
 from .base import BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
-from .stats import Stats, TaskStats
 from .typing import EXC_INFO
 
 
@@ -31,7 +29,7 @@ class AsyncioManager(BaseManager):
     _system_tasks: Set["asyncio.Future[None]"]
 
     # Tracking of the background tasks that the service has initiated.
-    _service_task_dag: Dict["asyncio.Future[Any]", List["asyncio.Future[Any]"]]
+    _service_task_dag: Dict["asyncio.Future[Any]", Set["asyncio.Future[Any]"]]
 
     def __init__(
         self, service: ServiceAPI, loop: asyncio.AbstractEventLoop = None
@@ -74,7 +72,8 @@ class AsyncioManager(BaseManager):
         # task will end up being cancelled as part of it's parent task's cancel
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
-        for task in iter_dag(self._service_task_dag):
+        tasks_to_cancel = tuple(iter_dag(self._service_task_dag))
+        for task in tasks_to_cancel:
             if not task.done():
                 task.cancel()
 
@@ -167,11 +166,16 @@ class AsyncioManager(BaseManager):
             )
 
     async def _wait_service_tasks(self) -> None:
+        done = asyncio.Event()
         while True:
-            done, pending = await asyncio.wait(
-                tuple(self._service_task_dag.keys()), return_when=asyncio.ALL_COMPLETED
+            pending_service_tasks = tuple(
+                task for task in self._service_task_dag if not task.done()
             )
-            if all(task.done() for task in self._service_task_dag):
+            if pending_service_tasks:
+                pending_service_tasks[0].add_done_callback(lambda fut: done.set())
+                await done.wait()
+                done.clear()
+            else:
                 break
 
     #
@@ -221,6 +225,11 @@ class AsyncioManager(BaseManager):
         name: str,
     ) -> None:
         self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
+        # mypy thinks this is an `Optional[asyncio.Task[Any]]` which causes
+        # some problems lower down when it is used to lookup dependencies in
+        # the task dag.
+        task = cast("asyncio.Future[Any]", get_current_task())
+
         try:
             await async_fn(*args)
         except asyncio.CancelledError:
@@ -245,6 +254,31 @@ class AsyncioManager(BaseManager):
                 )
                 self.cancel()
                 raise DaemonTaskExit(f"Daemon task {name} exited")
+
+            any_child_done = asyncio.Event()
+            while True:
+                children_still_running = tuple(
+                    child_task
+                    for child_task in self._service_task_dag[task]
+                    if not child_task.done()
+                )
+                # If there are still child tasks that have not finished
+                # wait for them.  Otherwise, this task can be
+                # considered fully done and we can clean it up.
+                if children_still_running:
+                    children_still_running[0].add_done_callback(
+                        lambda fut: any_child_done.set()
+                    )
+                    await any_child_done.wait()
+                    any_child_done.clear()
+                else:
+                    break
+
+    def _cleanup_task(self, task: "asyncio.Future[Any]") -> None:
+        self._service_task_dag.pop(task)
+        for dependencies in self._service_task_dag.values():
+            dependencies.discard(task)
+        self._done_task_count += 1
 
     def run_task(
         self,
@@ -273,11 +307,13 @@ class AsyncioManager(BaseManager):
             self._run_and_manage_task(async_fn, *args, daemon=daemon, name=task_name),
             loop=self._loop,
         )
-        self._service_task_dag[task] = []
+        task.add_done_callback(self._cleanup_task)
+        self._service_task_dag[task] = set()
+        self._total_task_count += 1
 
         parent_task = get_current_task()
         if parent_task in self._service_task_dag:
-            self._service_task_dag[parent_task].append(task)
+            self._service_task_dag[parent_task].add(task)
         else:
             self.logger.debug(
                 "New root task %s[daemon=%s] added to DAG", task_name, daemon
@@ -290,16 +326,6 @@ class AsyncioManager(BaseManager):
         task_name = get_task_name(service, name)
         self.run_task(child_manager.run, daemon=daemon, name=task_name)
         return child_manager
-
-    @property
-    def stats(self) -> Stats:
-        total_count = max(0, len(self._service_task_dag) - 1)
-        finished_count = min(
-            total_count, len([task for task in self._service_task_dag if task.done()])
-        )
-        return Stats(
-            tasks=TaskStats(total_count=total_count, finished_count=finished_count)
-        )
 
 
 @asynccontextmanager

@@ -3,6 +3,7 @@ from typing import Any, Awaitable, Callable, List, Type
 
 from .abc import InternalManagerAPI, ManagerAPI, ServiceAPI
 from .exceptions import LifecycleError
+from .stats import Stats, TaskStats
 from .typing import EXC_INFO
 
 
@@ -67,6 +68,10 @@ class BaseManager(InternalManagerAPI):
         # errors
         self._errors = []
 
+        # stats
+        self._total_task_count = 0
+        self._done_task_count = 0
+
     def __str__(self) -> str:
         return (
             "<Manager  "
@@ -111,3 +116,17 @@ class BaseManager(InternalManagerAPI):
         self, service: ServiceAPI, name: str = None
     ) -> ManagerAPI:
         return self.run_child_service(service, daemon=True, name=name)
+
+    @property
+    def stats(self) -> Stats:
+        # The `max` call here ensures that if this is called prior to the
+        # `Service.run` method starting we don't return `-1`
+        total_count = max(0, self._total_task_count - 1)
+
+        # Since we track `Service.run` as a task, the `min` call here ensures
+        # that when the service is fully done that we don't represent the
+        # `Service.run` method in this count.
+        finished_count = min(total_count, self._done_task_count)
+        return Stats(
+            tasks=TaskStats(total_count=total_count, finished_count=finished_count)
+        )
