@@ -125,47 +125,13 @@ class TrioManager(BaseManager):
         # task will end up being cancelled as part of its parent task's cancel
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
-        for task in iter_dag(self._service_task_dag.copy()):
+        for task in iter_dag(self._service_task_dag):
             task.cancel_scope.cancel()
             await task.done.wait()
 
         # This finaly cancellation of the task nursery's cancel scope ensures
         # that nothing is left behind and that the service will reliably exit.
         self._task_nursery.cancel_scope.cancel()
-
-    async def _handle_run(self) -> None:
-        """
-        Run and monitor the actual :meth:`ServiceAPI.run` method.
-
-        In the event that it throws an exception the service will be cancelled.
-        """
-        task = _Task(
-            name="run", daemon=False, parent=None, trio_task=trio.hazmat.current_task()
-        )
-        self._service_task_dag[task] = []
-
-        try:
-            with task.cancel_scope:
-                await self._service.run()
-        except Exception as err:
-            self.logger.debug(
-                "%s: _handle_run got error, storing exception and setting cancelled: %s",
-                self,
-                err,
-            )
-            self._errors.append(cast(EXC_INFO, sys.exc_info()))
-            self.cancel()
-        else:
-            # NOTE: Any service which uses daemon tasks will need to trigger
-            # cancellation in order for the service to exit since this code
-            # path does not trigger task cancellation.  It might make sense to
-            # trigger cancellation if all of the running tasks are daemon
-            # tasks.
-            self.logger.debug(
-                "%s: _handle_run exited cleanly, waiting for full stop...", self
-            )
-        finally:
-            task.done.set()
 
     @classmethod
     async def run_service(cls, service: ServiceAPI) -> None:
@@ -189,9 +155,9 @@ class TrioManager(BaseManager):
                         async with trio.open_nursery() as task_nursery:
                             self._task_nursery = task_nursery
 
-                            task_nursery.start_soon(self._handle_run)
-
                             self._started.set()
+
+                            self.run_task(self._service.run)
 
                             # ***BLOCKING HERE***
                             # The code flow will block here until the background tasks have

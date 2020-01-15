@@ -74,7 +74,7 @@ class AsyncioManager(BaseManager):
         # task will end up being cancelled as part of it's parent task's cancel
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
-        for task in iter_dag(self._service_task_dag.copy()):
+        for task in iter_dag(self._service_task_dag):
             if not task.done():
                 task.cancel()
 
@@ -171,7 +171,7 @@ class AsyncioManager(BaseManager):
             done, pending = await asyncio.wait(
                 tuple(self._service_task_dag.keys()), return_when=asyncio.ALL_COMPLETED
             )
-            if all(task.done() for task in self._service_task_dag.keys()):
+            if all(task.done() for task in self._service_task_dag):
                 break
 
     #
