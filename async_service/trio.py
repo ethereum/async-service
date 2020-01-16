@@ -30,6 +30,7 @@ from .typing import EXC_INFO
 class _Task(Hashable):
     _trio_task: Optional[trio.hazmat.Task] = None
     _cancel_scope: trio.CancelScope
+    manager = None
 
     def __init__(
         self,
@@ -37,9 +38,11 @@ class _Task(Hashable):
         daemon: bool,
         parent: Optional["_Task"],
         trio_task: trio.hazmat.Task = None,
+        manager = None,
     ) -> None:
         # For hashable interface.
         self._id = uuid.uuid4()
+        self.manager = manager
 
         # meta
         self.name = name
@@ -125,6 +128,9 @@ class TrioManager(BaseManager):
         # ensure we have a reference to all of the tasks in the DAG.
         tasks_to_cancel = tuple(iter_dag(self._service_task_dag))
         for task in tasks_to_cancel:
+            if task.manager is not None:
+                self.logger.info('CHILD MANAGER CANCELLING AND STOPPING')
+                await task.manager.stop()
             task.cancel_scope.cancel()
             await task.done.wait()
 
@@ -263,7 +269,11 @@ class TrioManager(BaseManager):
                             task,
                         )
                         self.cancel()
-                        raise DaemonTaskExit(f"Daemon task {name} exited")
+                        try:
+                            raise DaemonTaskExit(f"Daemon task {name} exited")
+                        except DaemonTaskExit:
+                            self._errors.append(cast(EXC_INFO, sys.exc_info()))
+                            return
 
                     self.logger.debug("%s: task %s cleaning up.", self, task)
                     # Now we wait for all of the child tasks to complete.
@@ -307,6 +317,7 @@ class TrioManager(BaseManager):
         *args: Any,
         daemon: bool = False,
         name: str = None,
+        child_manager = None,
     ) -> None:
         if not self.is_running:
             raise LifecycleError(
@@ -328,6 +339,7 @@ class TrioManager(BaseManager):
             name=task_name,
             daemon=daemon,
             parent=self._get_parent_task(trio.hazmat.current_task()),
+            manager=child_manager,
         )
 
         if task.parent is None:
@@ -343,7 +355,7 @@ class TrioManager(BaseManager):
 
         self._task_nursery.start_soon(
             functools.partial(
-                self._run_and_manage_task, daemon=daemon, name=task_name, task=task
+                self._run_and_manage_task, daemon=daemon, name=task_name, task=task,
             ),
             async_fn,
             *args,
@@ -355,7 +367,7 @@ class TrioManager(BaseManager):
     ) -> ManagerAPI:
         child_manager = type(self)(service)
         task_name = get_task_name(service, name)
-        self.run_task(child_manager.run, daemon=daemon, name=task_name)
+        self.run_task(child_manager.run, daemon=daemon, name=task_name, child_manager=child_manager)
         return child_manager
 
 

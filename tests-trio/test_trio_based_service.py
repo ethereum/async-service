@@ -584,3 +584,83 @@ async def test_trio_service_with_try_finally_cleanup_with_shielded_await():
         assert not service.cleanup_up
         manager.cancel()
     assert service.cleanup_up
+
+
+@pytest.mark.trio
+async def test_trio_service_with_race_between_child_service_error_and_daemon_task():
+
+    daemon_count = 0
+    success_count = 0
+    runtime_count = 0
+    iterations = 100
+    for i in range(iterations):
+        ready_daemon_exit = trio.Event()
+        daemon_exit = trio.Event()
+
+        class ChildService(Service):
+            async def run(self):
+                await ready_daemon_exit.wait()
+                daemon_exit.set()
+                raise RuntimeError('arst')
+
+        child = ChildService()
+
+        class MainService(Service):
+            async def _do_daemon(self):
+                self.manager.run_child_service(child)
+                ready_daemon_exit.set()
+                await daemon_exit.wait()
+
+            async def run(self) -> None:
+                self.manager.run_daemon_task(self._do_daemon)
+                await self.manager.wait_finished()
+        service = MainService()
+        try:
+            await TrioManager.run_service(service)
+        except DaemonTaskExit:
+            daemon_count += 1
+        except trio.MultiError:
+            success_count += 1
+        except RuntimeError:
+            runtime_count += 1
+        assert child.manager.did_error
+        assert child.manager._errors[0][0] is RuntimeError
+
+    assert success_count == iterations, f"multi: {success_count}  daemon: {daemon_count}  runtime: {runtime_count}"
+
+
+@pytest.mark.trio
+async def test_trio_service_with_race_between_child_service_error_and_cancellation():
+
+    success_count = 0
+    fail_count = 0
+    iterations = 100
+    for i in range(iterations):
+        ready_daemon_exit = trio.Event()
+        daemon_exit = trio.Event()
+
+        class ChildService(Service):
+            async def run(self):
+                await ready_daemon_exit.wait()
+                daemon_exit.set()
+                raise RuntimeError('arst')
+
+        child = ChildService()
+
+        class MainService(Service):
+            async def run(self) -> None:
+                self.manager.run_child_service(child)
+                ready_daemon_exit.set()
+                await daemon_exit.wait()
+                self.manager.cancel()
+        service = MainService()
+        try:
+            await TrioManager.run_service(service)
+        except RuntimeError:
+            success_count += 1
+        else:
+            fail_count += 1
+        assert child.manager.did_error
+        assert child.manager._errors[0][0] is RuntimeError
+
+    assert success_count == iterations, f"success: {success_count}  fail: {fail_count}"
