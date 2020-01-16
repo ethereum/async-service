@@ -39,15 +39,19 @@ class _Task(Hashable):
         parent: Optional["_Task"],
         trio_task: trio.hazmat.Task = None,
     ) -> None:
-        # hashable
+        # For hashable interface.
         self._id = uuid.uuid4()
 
         # meta
         self.name = name
         self.daemon = daemon
 
-        # management
+        # We use an event to manually track when the child task is "done".
+        # This is because trio has no API for awaiting completion of a task.
         self.done = trio.Event()
+
+        # Each task gets its own `CancelScope` which is how we can manually
+        # control cancellation order of the task DAG
         self.cancel_scope = trio.CancelScope()
 
         self.parent = parent
@@ -56,6 +60,11 @@ class _Task(Hashable):
 
     def __hash__(self) -> int:
         return hash(self._id)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, _Task):
+            return False
+        return self._id == other._id
 
     def __str__(self) -> str:
         return f"{self.name}[daemon={self.daemon}]"
@@ -113,7 +122,7 @@ class TrioManager(BaseManager):
         #
         # We have to make a copy of the task dag because it is possible that
         # there is a task which has just been scheduled. In this case the new
-        # task will end up being cancelled as part of it's parent task's cancel
+        # task will end up being cancelled as part of its parent task's cancel
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
         for task in iter_dag(self._service_task_dag.copy()):
@@ -300,7 +309,7 @@ class TrioManager(BaseManager):
         the given :class:`trio.hazmat.Task` instance.
         """
         for task in self._service_task_dag:
-            # Any task that has not had it's `trio_task` set can be safely
+            # Any task that has not had its `trio_task` set can be safely
             # skipped as those are still in the process of starting up which
             # means that they cannot be the parent task since they will not
             # have had a chance to schedule an child tasks.
