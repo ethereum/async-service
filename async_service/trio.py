@@ -173,9 +173,9 @@ class TrioManager(BaseManager):
             # We need this inside a finally because a trio.Cancelled exception may be raised
             # here and it wouldn't be swalled by the 'except Exception' above.
             self._stopping.set()
-            self.logger.debug("%s stopping", self)
+            self.logger.debug("%s: stopping", self)
             self._finished.set()
-            self.logger.debug("%s finished", self)
+            self.logger.debug("%s: finished", self)
 
         # This is outside of the finally block above because we don't want to suppress
         # trio.Cancelled or trio.MultiError exceptions coming directly from trio.
@@ -237,7 +237,7 @@ class TrioManager(BaseManager):
         name: str,
         task: _Task,
     ) -> None:
-        self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
+        self.logger.debug("%s: task %s running", self, task)
 
         task.trio_task = trio.hazmat.current_task()
 
@@ -247,42 +247,36 @@ class TrioManager(BaseManager):
                     await async_fn(*args)
                 except Exception as err:
                     self.logger.debug(
-                        "task '%s[daemon=%s]' exited with error: %s",
-                        name,
-                        daemon,
+                        "%s: task %s exited with error: %s",
+                        self,
+                        task,
                         err,
                         exc_info=True,
                     )
                     self._errors.append(cast(EXC_INFO, sys.exc_info()))
                     self.cancel()
                 else:
-                    self.logger.debug("task '%s[daemon=%s]' finished.", name, daemon)
                     if daemon:
                         self.logger.debug(
-                            "daemon task '%s' exited unexpectedly.  Cancelling service: %s",
-                            name,
+                            "%s: daemon task '%s' exited unexpectedly.  Cancelling service",
                             self,
+                            task,
                         )
                         self.cancel()
                         raise DaemonTaskExit(f"Daemon task {name} exited")
-                    while True:
-                        children_still_running = tuple(
-                            child_task
-                            for child_task in self._service_task_dag[task]
-                            if not child_task.done.is_set()
-                        )
-                        # If there are still child tasks that have not finished
-                        # wait for them.  Otherwise, this task can be
-                        # considered fully done and we can clean it up.
-                        if children_still_running:
-                            for child_task in children_still_running:
-                                await child_task.done.wait()
-                        else:
-                            break
+
+                    self.logger.debug("%s: task %s cleaning up.", self, task)
+                    # Now we wait for all of the child tasks to complete.
+                    for child_task in tuple(self._service_task_dag[task]):
+                        if not child_task.done.is_set():
+                            await child_task.done.wait()
+
+                    self.logger.debug("%s: task %s finished.", self, task)
         finally:
             # mark the task as being done and then remove it from the dag and
             # any set of dependencies that it may be part of.
             task.done.set()
+
             self._service_task_dag.pop(task)
             for dependencies in self._service_task_dag.values():
                 dependencies.discard(task)
@@ -322,8 +316,9 @@ class TrioManager(BaseManager):
         task_name = get_task_name(async_fn, name)
         if self.is_running and self.is_cancelled:
             self.logger.debug(
-                "Service is in the process of being cancelled. Not running task "
+                "%s: service is in the process of being cancelled. Not running task "
                 "%s[daemon=%s]",
+                self,
                 task_name,
                 daemon,
             )
@@ -336,9 +331,11 @@ class TrioManager(BaseManager):
         )
 
         if task.parent is None:
-            self.logger.debug("New root task %s added to DAG", task)
+            self.logger.debug("%s: new root task %s added to DAG", self, task)
         else:
-            self.logger.debug("New child task %s -> %s added to DAG", task.parent, task)
+            self.logger.debug(
+                "%s: new child task %s -> %s added to DAG", self, task.parent, task
+            )
             self._service_task_dag[task.parent].add(task)
 
         self._service_task_dag[task] = set()

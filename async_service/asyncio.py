@@ -143,7 +143,7 @@ class AsyncioManager(BaseManager):
                 # they do we probably have a bug so we just mark the service as stopping and
                 # return.
                 self._stopping.set()
-                self.logger.debug("%s stopping", self)
+                self.logger.debug("%s: stopping", self)
 
             # block here until all system tasks have finished.
             await asyncio.wait(
@@ -152,7 +152,7 @@ class AsyncioManager(BaseManager):
             )
 
         self._finished.set()
-        self.logger.debug("%s finished", self)
+        self.logger.debug("%s: finished", self)
 
         # Above we rely on run_task() and handle_cancelled()/handle_stopping() to run the
         # service/tasks and swallow/collect exceptions so that they can be reported all together
@@ -168,10 +168,18 @@ class AsyncioManager(BaseManager):
     async def _wait_service_tasks(self) -> None:
         done = asyncio.Event()
         while True:
+            # Each time we `await` it is possible that new tasks could be
+            # added.  For this reason we have to recompute the set of tasks
+            # inside of the loop.
             pending_service_tasks = tuple(
                 task for task in self._service_task_dag if not task.done()
             )
             if pending_service_tasks:
+                # In the event that there are any *pending* tasks, we await the
+                # first one as an optimization.  We could await all of them,
+                # but since we would end up having to recompute the set of
+                # pending tasks anyways, we simplify things by only awaiting
+                # the first one which is less load on the event loop.
                 pending_service_tasks[0].add_done_callback(lambda fut: done.set())
                 await done.wait()
                 done.clear()
@@ -224,7 +232,7 @@ class AsyncioManager(BaseManager):
         daemon: bool,
         name: str,
     ) -> None:
-        self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
+        self.logger.debug("%s: running task '%s[daemon=%s]'", self, name, daemon)
         # mypy thinks this is an `Optional[asyncio.Task[Any]]` which causes
         # some problems lower down when it is used to lookup dependencies in
         # the task dag.
@@ -236,7 +244,8 @@ class AsyncioManager(BaseManager):
             raise
         except Exception as err:
             self.logger.debug(
-                "task '%s[daemon=%s]' exited with error: %s",
+                "%s: task '%s[daemon=%s]' exited with error: %s",
+                self,
                 name,
                 daemon,
                 err,
@@ -245,34 +254,27 @@ class AsyncioManager(BaseManager):
             self._errors.append(cast(EXC_INFO, sys.exc_info()))
             self.cancel()
         else:
-            self.logger.debug("task '%s[daemon=%s]' finished.", name, daemon)
             if daemon:
                 self.logger.debug(
-                    "daemon task '%s' exited unexpectedly.  Cancelling service: %s",
-                    name,
+                    "%s: daemon task '%s' exited unexpectedly.  Cancelling service",
                     self,
+                    name,
                 )
                 self.cancel()
                 raise DaemonTaskExit(f"Daemon task {name} exited")
 
-            any_child_done = asyncio.Event()
-            while True:
-                children_still_running = tuple(
-                    child_task
-                    for child_task in self._service_task_dag[task]
-                    if not child_task.done()
-                )
-                # If there are still child tasks that have not finished
-                # wait for them.  Otherwise, this task can be
-                # considered fully done and we can clean it up.
-                if children_still_running:
-                    children_still_running[0].add_done_callback(
-                        lambda fut: any_child_done.set()
-                    )
-                    await any_child_done.wait()
-                    any_child_done.clear()
-                else:
-                    break
+            self.logger.debug(
+                "%s: task '%s[daemon=%s]' cleaning up", self, name, daemon
+            )
+            # Now we wait for all of the child tasks to be complete.
+            child_done = asyncio.Event()
+            for child_task in tuple(self._service_task_dag[task]):
+                if not child_task.done():
+                    child_task.add_done_callback(lambda fut: child_done.set())
+                    await child_done.wait()
+                    child_done.clear()
+
+            self.logger.debug("%s: task '%s[daemon=%s]' finished.", self, name, daemon)
 
     def _cleanup_task(self, task: "asyncio.Future[Any]") -> None:
         self._service_task_dag.pop(task)
@@ -296,8 +298,9 @@ class AsyncioManager(BaseManager):
 
         if self.is_running and self.is_cancelled:
             self.logger.debug(
-                "Service is in the process of being cancelled. Not running task "
+                "%s: service is in the process of being cancelled. Not running task "
                 "%s[daemon=%s]",
+                self,
                 task_name,
                 daemon,
             )
@@ -313,10 +316,17 @@ class AsyncioManager(BaseManager):
 
         parent_task = get_current_task()
         if parent_task in self._service_task_dag:
+            self.logger.debug(
+                "%s: new child task %s -> %s[daemon=%s] added to DAG",
+                self,
+                parent_task,
+                task_name,
+                daemon,
+            )
             self._service_task_dag[parent_task].add(task)
         else:
             self.logger.debug(
-                "New root task %s[daemon=%s] added to DAG", task_name, daemon
+                "%s: new root task %s[daemon=%s] added to DAG", task_name, daemon
             )
 
     def run_child_service(
