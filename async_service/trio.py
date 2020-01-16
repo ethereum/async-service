@@ -7,12 +7,14 @@ from typing import (
     Callable,
     Coroutine,
     Dict,
+    Hashable,
     List,
     Optional,
     Tuple,
     TypeVar,
     cast,
 )
+import uuid
 
 from async_generator import asynccontextmanager
 import trio
@@ -26,14 +28,70 @@ from .stats import Stats, TaskStats
 from .typing import EXC_INFO
 
 
+class _Task(Hashable):
+    _trio_task: Optional[trio.hazmat.Task] = None
+    _cancel_scope: trio.CancelScope
+
+    def __init__(
+        self,
+        name: str,
+        daemon: bool,
+        parent: Optional["_Task"],
+        trio_task: trio.hazmat.Task = None,
+    ) -> None:
+        # For hashable interface.
+        self._id = uuid.uuid4()
+
+        # meta
+        self.name = name
+        self.daemon = daemon
+
+        # We use an event to manually track when the child task is "done".
+        # This is because trio has no API for awaiting completion of a task.
+        self.done = trio.Event()
+
+        # Each task gets its own `CancelScope` which is how we can manually
+        # control cancellation order of the task DAG
+        self.cancel_scope = trio.CancelScope()
+
+        self.parent = parent
+
+        self._trio_task = trio_task
+
+    def __hash__(self) -> int:
+        return hash(self._id)
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, _Task):
+            return False
+        return self._id == other._id
+
+    def __str__(self) -> str:
+        return f"{self.name}[daemon={self.daemon}]"
+
+    @property
+    def has_trio_task(self) -> bool:
+        return self._trio_task is not None
+
+    @property
+    def trio_task(self) -> trio.hazmat.Task:
+        if self._trio_task is None:
+            raise LifecycleError("Trio task not set yet")
+        return self._trio_task
+
+    @trio_task.setter
+    def trio_task(self, value: trio.hazmat.Task) -> None:
+        if self._trio_task is not None:
+            raise LifecycleError(f"Task already set: {self._trio_task}")
+        self._trio_task = value
+
+
 class TrioManager(BaseManager):
     # A nursery for sub tasks and services.  This nursery is cancelled if the
     # service is cancelled but allowed to exit normally if the service exits.
     _task_nursery: trio_typing.Nursery
 
-    _service_task_dag: Dict[trio.hazmat.Task, List[trio.hazmat.Task]]
-    _task_done_events: Dict[trio.hazmat.Task, trio.Event]
-    _task_cancel_scopes: Dict[trio.hazmat.Task, trio.CancelScope]
+    _service_task_dag: Dict[_Task, List[_Task]]
 
     def __init__(self, service: ServiceAPI) -> None:
         super().__init__(service)
@@ -49,8 +107,6 @@ class TrioManager(BaseManager):
 
         # DAG tracking
         self._service_task_dag = {}
-        self._task_cancel_scopes = {}
-        self._task_done_events = {}
 
     #
     # System Tasks
@@ -66,14 +122,12 @@ class TrioManager(BaseManager):
         #
         # We have to make a copy of the task dag because it is possible that
         # there is a task which has just been scheduled. In this case the new
-        # task will end up being cancelled as part of it's parent task's cancel
+        # task will end up being cancelled as part of its parent task's cancel
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
         for task in iter_dag(self._service_task_dag.copy()):
-            cancel_scope = self._task_cancel_scopes[task]
-            done = self._task_done_events[task]
-            cancel_scope.cancel()
-            await done.wait()
+            task.cancel_scope.cancel()
+            await task.done.wait()
 
         # This finaly cancellation of the task nursery's cancel scope ensures
         # that nothing is left behind and that the service will reliably exit.
@@ -85,9 +139,13 @@ class TrioManager(BaseManager):
 
         In the event that it throws an exception the service will be cancelled.
         """
-        done, cancel_scope = self._track_current_task(parent=trio.hazmat.current_task())
+        task = _Task(
+            name="run", daemon=False, parent=None, trio_task=trio.hazmat.current_task()
+        )
+        self._service_task_dag[task] = []
+
         try:
-            with cancel_scope:
+            with task.cancel_scope:
                 await self._service.run()
         except Exception as err:
             self.logger.debug(
@@ -107,7 +165,7 @@ class TrioManager(BaseManager):
                 "%s: _handle_run exited cleanly, waiting for full stop...", self
             )
         finally:
-            done.set()
+            task.done.set()
 
     @classmethod
     async def run_service(cls, service: ServiceAPI) -> None:
@@ -206,44 +264,20 @@ class TrioManager(BaseManager):
     async def wait_finished(self) -> None:
         await self._finished.wait()
 
-    def _track_current_task(
-        self, parent: trio.hazmat.Task
-    ) -> Tuple[trio.Event, trio.CancelScope]:
-        current_task = trio.hazmat.current_task()
-        if parent in self._service_task_dag:
-            self._service_task_dag[parent].append(current_task)
-
-        # We use an event to manually track when the child task is "done".
-        # This is because trio has no API for awaiting completion of a task.
-        done = trio.Event()
-        self._task_done_events[current_task] = done
-
-        # Each task gets its own `CancelScope` which is how we can manually
-        # control cancellation order of the task DAG
-        cancel_scope = trio.CancelScope()
-        self._task_cancel_scopes[current_task] = cancel_scope
-
-        # This data structure is setup so that child tasks can *inject*
-        # themselves in as dependencies.
-        self._service_task_dag[current_task] = []
-
-        return done, cancel_scope
-
     async def _run_and_manage_task(
         self,
         async_fn: Callable[..., Awaitable[Any]],
         *args: Any,
         daemon: bool,
         name: str,
-        parent: trio.hazmat.Task,
+        task: _Task,
     ) -> None:
         self.logger.debug("running task '%s[daemon=%s]'", name, daemon)
-        done, cancel_scope = self._track_current_task(parent)
-        if parent not in self._service_task_dag:
-            self.logger.debug("New root task %s[daemon=%s] added to DAG", name, daemon)
+
+        task.trio_task = trio.hazmat.current_task()
 
         try:
-            with cancel_scope:
+            with task.cancel_scope:
                 try:
                     await async_fn(*args)
                 except Exception as err:
@@ -267,7 +301,26 @@ class TrioManager(BaseManager):
                         self.cancel()
                         raise DaemonTaskExit(f"Daemon task {name} exited")
         finally:
-            done.set()
+            task.done.set()
+
+    def _get_parent_task(self, trio_task: trio.hazmat.Task) -> Optional[_Task]:
+        """
+        Find the :class:`async_service.trio._Task` instance that corresponds to
+        the given :class:`trio.hazmat.Task` instance.
+        """
+        for task in self._service_task_dag:
+            # Any task that has not had its `trio_task` set can be safely
+            # skipped as those are still in the process of starting up which
+            # means that they cannot be the parent task since they will not
+            # have had a chance to schedule an child tasks.
+            if not task.has_trio_task:
+                continue
+            elif trio_task is task.trio_task:
+                return task
+        else:
+            # In the case that no tasks match we assume this is a new `root`
+            # task and return `None` as the parent.
+            return None
 
     def run_task(
         self,
@@ -291,14 +344,23 @@ class TrioManager(BaseManager):
             )
             return
 
-        current_task = trio.hazmat.current_task()
+        task = _Task(
+            name=task_name,
+            daemon=daemon,
+            parent=self._get_parent_task(trio.hazmat.current_task()),
+        )
+
+        if task.parent is None:
+            self.logger.debug("New root task %s added to DAG", task)
+        else:
+            self.logger.debug("New child task %s -> %s added to DAG", task.parent, task)
+            self._service_task_dag[task.parent].append(task)
+
+        self._service_task_dag[task] = []
 
         self._task_nursery.start_soon(
             functools.partial(
-                self._run_and_manage_task,
-                daemon=daemon,
-                name=task_name,
-                parent=current_task,
+                self._run_and_manage_task, daemon=daemon, name=task_name, task=task
             ),
             async_fn,
             *args,
@@ -328,7 +390,7 @@ class TrioManager(BaseManager):
         # inflated number of finished tasks.
         finished_count = min(
             total_count,
-            len([event for event in self._task_done_events.values() if event.is_set()]),
+            len([task for task in self._service_task_dag if task.done.is_set()]),
         )
         return Stats(
             tasks=TaskStats(total_count=total_count, finished_count=finished_count)
