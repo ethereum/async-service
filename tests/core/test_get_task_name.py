@@ -1,6 +1,6 @@
 import pytest
 
-from async_service import Service
+from async_service.abc import ServiceAPI
 from async_service._utils import get_task_name
 
 
@@ -8,12 +8,18 @@ async def async_fn_for_test():
     pass
 
 
-class NoStrOrRepr(Service):
+class NoStrOrRepr(ServiceAPI):
+    def get_manager(self):
+        pass
+
     async def run(self):
         pass
 
 
-class HasStrNotRepr(Service):
+class HasStrNotRepr(ServiceAPI):
+    def get_manager(self):
+        pass
+
     def __str__(self):
         return "custom-str"
 
@@ -21,7 +27,10 @@ class HasStrNotRepr(Service):
         pass
 
 
-class HasReprNotStr(Service):
+class HasReprNotStr(ServiceAPI):
+    def get_manager(self):
+        pass
+
     def __repr__(self):
         return "custom-repr"
 
@@ -29,7 +38,10 @@ class HasReprNotStr(Service):
         pass
 
 
-class HasStrAndRepr(Service):
+class HasStrAndRepr(ServiceAPI):
+    def get_manager(self):
+        pass
+
     def __str__(self):
         return "custom-str"
 

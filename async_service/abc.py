@@ -1,9 +1,41 @@
 from abc import ABC, abstractmethod
-from typing import Any, Awaitable, Callable
+from typing import Any, Hashable, Optional
 
 import trio_typing
 
 from .stats import Stats
+from .typing import AsyncFn
+
+
+class TaskAPI(Hashable):
+    name: str
+    daemon: bool
+    parent: Optional["TaskAPI"]
+
+    @abstractmethod
+    def add_child(self, child: "TaskAPI") -> None:
+        ...
+
+    @abstractmethod
+    def discard_child(self, child: "TaskAPI") -> None:
+        ...
+
+    @abstractmethod
+    async def run(self) -> None:
+        ...
+
+    @abstractmethod
+    async def cancel(self) -> None:
+        ...
+
+    @property
+    @abstractmethod
+    def is_done(self) -> bool:
+        ...
+
+    @abstractmethod
+    async def wait_done(self) -> None:
+        ...
 
 
 class ServiceAPI(ABC):
@@ -177,11 +209,7 @@ class InternalManagerAPI(ManagerAPI):
     @trio_typing.takes_callable_and_args
     @abstractmethod
     def run_task(
-        self,
-        async_fn: Callable[..., Awaitable[Any]],
-        *args: Any,
-        daemon: bool = False,
-        name: str = None
+        self, async_fn: AsyncFn, *args: Any, daemon: bool = False, name: str = None
     ) -> None:
         """
         Run a task in the background.  If the function throws an exception it
@@ -194,9 +222,7 @@ class InternalManagerAPI(ManagerAPI):
 
     @trio_typing.takes_callable_and_args
     @abstractmethod
-    def run_daemon_task(
-        self, async_fn: Callable[..., Awaitable[Any]], *args: Any, name: str = None
-    ) -> None:
+    def run_daemon_task(self, async_fn: AsyncFn, *args: Any, name: str = None) -> None:
         """
         Run a daemon task in the background.
 

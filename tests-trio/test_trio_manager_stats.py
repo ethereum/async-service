@@ -19,14 +19,20 @@ async def test_trio_manager_stats():
             self.manager.run_task(trio.hazmat.checkpoint)
 
             # 1 that spawns some children
-            self.manager.run_task(self.run_with_children, 5)
+            self.manager.run_task(self.run_with_children, 4)
 
         async def run_with_children(self, num_children):
             for _ in range(num_children):
                 self.manager.run_task(trio.sleep_forever)
             ready.set()
 
-    async with background_trio_service(StatsTest()) as manager:
+        def run_external_root(self):
+            self.manager.run_task(trio.hazmat.checkpoint)
+
+    service = StatsTest()
+    async with background_trio_service(service) as manager:
+        service.run_external_root()
+        assert len(manager._root_tasks) == 2
         with trio.fail_after(1):
             await ready.wait()
 
@@ -36,12 +42,12 @@ async def test_trio_manager_stats():
             await trio.hazmat.checkpoint()
 
         assert manager.stats.tasks.total_count == 10
-        assert manager.stats.tasks.finished_count == 2
-        assert manager.stats.tasks.pending_count == 8
+        assert manager.stats.tasks.finished_count == 3
+        assert manager.stats.tasks.pending_count == 7
 
         # This is a simple test to ensure that finished tasks are removed from
         # tracking to prevent unbounded memory growth.
-        assert len(manager._service_task_dag) == 9
+        assert len(manager._root_tasks) == 1
 
     # now check after exiting
     assert manager.stats.tasks.total_count == 10

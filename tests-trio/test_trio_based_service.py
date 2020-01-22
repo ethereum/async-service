@@ -254,8 +254,8 @@ async def test_multierror_in_run():
 
     exc = exc_info.value
     assert len(exc.exceptions) == 2
-    assert isinstance(exc.exceptions[0], RuntimeError)
-    assert isinstance(exc.exceptions[1], DaemonTaskExit)
+    assert any(isinstance(err, RuntimeError) for err in exc.exceptions)
+    assert any(isinstance(err, DaemonTaskExit) for err in exc.exceptions)
 
 
 @pytest.mark.trio
@@ -403,7 +403,9 @@ async def test_trio_service_manager_run_daemon_task_cancels_if_exits():
         with trio.fail_after(1):
             await trio.sleep_forever()
 
-    with pytest.raises(DaemonTaskExit, match="Daemon task daemon_task_fn exited"):
+    with pytest.raises(
+        DaemonTaskExit, match=r"Daemon task daemon_task_fn\[daemon=True\] exited"
+    ):
         async with background_trio_service(RunTaskService()):
             task_event.set()
             with trio.fail_after(1):

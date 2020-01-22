@@ -49,7 +49,10 @@ async def do_service_lifecycle_check(
         # stopping.  Since it may be cancelled but still not stopped we
         # can't know.
         assert manager.is_cancelled is True
-        assert manager.is_stopping is True
+        # A service is only in the "stopping" phase for a very short period of
+        # time after all of the tasks have finished so we may either be
+        # stopping at this phase or completely finished.
+        assert manager.is_stopping is True or manager.is_finished is True
         # We cannot determine whether a service should be finished at this
         # stage as it could have exited cleanly and is now finished or it
         # might be doing some cleanup after which it will register as being
@@ -349,7 +352,9 @@ async def test_asyncio_service_manager_run_daemon_task_cancels_if_exits():
         manager.run_daemon_task(daemon_task_fn, name="daemon_task_fn")
         await asyncio.wait_for(asyncio.sleep(100), timeout=1)
 
-    with pytest.raises(DaemonTaskExit, match="Daemon task daemon_task_fn exited"):
+    with pytest.raises(
+        DaemonTaskExit, match=r"Daemon task daemon_task_fn\[daemon=True\] exited"
+    ):
         async with background_asyncio_service(RunTaskService()) as manager:
             task_event.set()
             await manager.wait_stopping()
