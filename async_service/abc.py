@@ -113,15 +113,6 @@ class ManagerAPI(ABC):
 
     @property
     @abstractmethod
-    def is_stopping(self) -> bool:
-        """
-        Return boolean indicating if the underlying service is in the process
-        of shutting down.
-        """
-        ...
-
-    @property
-    @abstractmethod
     def is_finished(self) -> bool:
         """
         Return boolean indicating if the underlying service is stopped.
@@ -156,13 +147,6 @@ class ManagerAPI(ABC):
     async def wait_started(self) -> None:
         """
         Wait until the service is started.
-        """
-        ...
-
-    @abstractmethod
-    async def wait_stopping(self) -> None:
-        """
-        Wait until the service is shutting down.
         """
         ...
 

@@ -127,7 +127,6 @@ class TrioManager(BaseManager):
         # events
         self._started = trio.Event()
         self._cancelled = trio.Event()
-        self._stopping = trio.Event()
         self._finished = trio.Event()
 
         # locks
@@ -139,7 +138,6 @@ class TrioManager(BaseManager):
     async def _handle_cancelled(self) -> None:
         self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
         await self._cancelled.wait()
-        self._stopping.set()
         self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
 
         # The `_root_tasks` changes size as each task completes itself
@@ -193,8 +191,6 @@ class TrioManager(BaseManager):
                         # have already captured.
                         self._errors.append(cast(EXC_INFO, sys.exc_info()))
                     finally:
-                        self._stopping.set()
-                        self.logger.debug("%s: stopping", self)
                         system_nursery.cancel_scope.cancel()
 
         finally:
@@ -225,10 +221,6 @@ class TrioManager(BaseManager):
         return self._cancelled.is_set()
 
     @property
-    def is_stopping(self) -> bool:
-        return self._stopping.is_set() and not self.is_finished
-
-    @property
     def is_finished(self) -> bool:
         return self._finished.is_set()
 
@@ -248,9 +240,6 @@ class TrioManager(BaseManager):
     #
     async def wait_started(self) -> None:
         await self._started.wait()
-
-    async def wait_stopping(self) -> None:
-        await self._stopping.wait()
 
     async def wait_finished(self) -> None:
         await self._finished.wait()
@@ -316,34 +305,30 @@ TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, Any]])
 _ChannelPayload = Tuple[Optional[Any], Optional[BaseException]]
 
 
-async def _wait_stopping_or_finished(
+async def _wait_finished(
     service: ServiceAPI,
     api_func: Callable[..., Any],
     channel: trio.abc.SendChannel[_ChannelPayload],
 ) -> None:
     manager = service.get_manager()
 
-    if manager.is_stopping or manager.is_finished:
+    if manager.is_finished:
         await channel.send(
             (
                 None,
                 ServiceCancelled(
-                    f"Cannot access external API {api_func}.  Service is not running: "
-                    f"started={manager.is_started}  running={manager.is_running} "
-                    f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                    f"Cannot access external API {api_func}.  Service {service} is not running: "
                 ),
             )
         )
         return
 
-    await manager.wait_stopping()
+    await manager.wait_finished()
     await channel.send(
         (
             None,
             ServiceCancelled(
-                f"Cannot access external API {api_func}.  Service is not running: "
-                f"started={manager.is_started}  running={manager.is_running} "
-                f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                f"Cannot access external API {api_func}.  Service {service} is not running: "
             ),
         )
     )
@@ -374,16 +359,14 @@ def external_api(func: TFunc) -> TFunc:
     async def inner(self: ServiceAPI, *args: Any, **kwargs: Any) -> Any:
         if not hasattr(self, "manager"):
             raise ServiceCancelled(
-                f"Cannot access external API {func}.  Service has not been run."
+                f"Cannot access external API {func}.  Service {self} has not been run."
             )
 
         manager = self.get_manager()
 
         if not manager.is_running:
             raise ServiceCancelled(
-                f"Cannot access external API {func}.  Service is not running: "
-                f"started={manager.is_started}  running={manager.is_running} "
-                f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                f"Cannot access external API {func}.  Service {self} is not running: "
             )
 
         channels: Tuple[
@@ -397,7 +380,7 @@ def external_api(func: TFunc) -> TFunc:
             nursery.start_soon(
                 _wait_api_fn, self, func, args, kwargs, send_channel  # type: ignore
             )
-            nursery.start_soon(_wait_stopping_or_finished, self, func, send_channel)
+            nursery.start_soon(_wait_finished, self, func, send_channel)
             result, err = await receive_channel.receive()
             nursery.cancel_scope.cancel()
         if err is None:

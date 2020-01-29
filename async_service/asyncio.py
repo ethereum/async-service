@@ -43,15 +43,9 @@ class FunctionTask(BaseFunctionTask):
                 self.parent.discard_child(self)
 
     async def cancel(self) -> None:
-        for task in tuple(self.children):
-            await task.cancel()
-
-        if not self.asyncio_task.done():
-            self.asyncio_task.cancel()
-        try:
-            await self.asyncio_task
-        except asyncio.CancelledError:
-            pass
+        async with cleanup_tasks(self.asyncio_task):
+            for task in tuple(self.children):
+                await task.cancel()
 
     @property
     def is_done(self) -> bool:
@@ -60,6 +54,9 @@ class FunctionTask(BaseFunctionTask):
     _wait_done_event: Optional[asyncio.Event] = None
 
     async def wait_done(self) -> None:
+        if self.asyncio_task.done():
+            return
+
         if self._wait_done_event is None:
             # lazily register an event so we can wait for the task to be done.
             # We do this instead of directly awaiting the `asyncio_task` so
@@ -87,15 +84,9 @@ class ChildServiceTask(BaseChildServiceTask):
         self.child_manager = AsyncioManager(child_service, loop)
 
     async def cancel(self) -> None:
-        if self.child_manager.is_started:
-            await self.child_manager.stop()
-
-        if not self.asyncio_task.done():
-            self.asyncio_task.cancel()
-        try:
-            await self.asyncio_task
-        except asyncio.CancelledError:
-            pass
+        async with cleanup_tasks(self.asyncio_task):
+            if self.child_manager.is_started:
+                await self.child_manager.stop()
 
 
 class AsyncioManager(BaseManager):
@@ -111,7 +102,6 @@ class AsyncioManager(BaseManager):
         # events
         self._started = asyncio.Event()
         self._cancelled = asyncio.Event()
-        self._stopping = asyncio.Event()
         self._finished = asyncio.Event()
 
         # locks
@@ -130,7 +120,6 @@ class AsyncioManager(BaseManager):
         """
         self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
         await self._cancelled.wait()
-        self._stopping.set()
         self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
 
         # Here we iterate over the task DAG such that we cancel the most deeply
@@ -203,33 +192,24 @@ class AsyncioManager(BaseManager):
             )
 
             async with cleanup_tasks(handle_cancelled_task):
-                try:
-                    self._started.set()
+                self._started.set()
 
-                    self.run_task(self._service.run)
+                self.run_task(self._service.run)
 
-                    # This is hack to get the task stats correct.  We don't want to
-                    # count the `Service.run` method as a task.  This is still
-                    # imperfect as it will still count as a completed task when it
-                    # finishes.
-                    self._total_task_count = 0
+                # This is hack to get the task stats correct.  We don't want to
+                # count the `Service.run` method as a task.  This is still
+                # imperfect as it will still count as a completed task when it
+                # finishes.
+                self._total_task_count = 0
 
-                    await self._wait_all_tasks_done()
-                finally:
-                    # None of the statements above are supposed to raise
-                    # exceptions (as they all rely on _run_and_manage_task() to
-                    # swallow and store them in self._errors, but in case they
-                    # do we probably have a bug so we just mark the service as
-                    # stopping and return.
-                    self._stopping.set()
-                    self.logger.debug("%s: stopping", self)
+                await self._wait_all_tasks_done()
 
         self._finished.set()
         self.logger.debug("%s: finished", self)
 
-        # Above we rely on run_task() and handle_cancelled()/handle_stopping() to run the
-        # service/tasks and swallow/collect exceptions so that they can be reported all together
-        # here.
+        # Above we rely on run_task() and handle_cancelled() to run the
+        # service/tasks and swallow/collect exceptions so that they can be
+        # reported all together here.
         if self.did_error:
             raise MultiError(
                 tuple(
@@ -250,10 +230,6 @@ class AsyncioManager(BaseManager):
         return self._cancelled.is_set()
 
     @property
-    def is_stopping(self) -> bool:
-        return self._stopping.is_set() and not self.is_finished
-
-    @property
     def is_finished(self) -> bool:
         return self._finished.is_set()
 
@@ -270,9 +246,6 @@ class AsyncioManager(BaseManager):
     #
     async def wait_started(self) -> None:
         await self._started.wait()
-
-    async def wait_stopping(self) -> None:
-        await self._stopping.wait()
 
     async def wait_finished(self) -> None:
         await self._finished.wait()
@@ -388,27 +361,23 @@ def external_api(func: TFunc) -> TFunc:
 
         if not manager.is_running:
             raise ServiceCancelled(
-                f"Cannot access external API {func}.  Service is not running: "
-                f"started={manager.is_started}  running={manager.is_running} "
-                f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                f"Cannot access external API {func}.  Service {self} is not running: "
             )
 
         func_task: "asyncio.Future[Any]" = asyncio.ensure_future(
             func(self, *args, **kwargs)
         )
-        service_stopping_task = asyncio.ensure_future(manager.wait_stopping())
+        service_finished_task = asyncio.ensure_future(manager.wait_finished())
 
         done, pending = await asyncio.wait(
-            (func_task, service_stopping_task), return_when=asyncio.FIRST_COMPLETED
+            (func_task, service_finished_task), return_when=asyncio.FIRST_COMPLETED
         )
         async with cleanup_tasks(*done, *pending):
             if func_task.done():
                 return await func_task
-            elif service_stopping_task.done():
+            elif service_finished_task.done():
                 raise ServiceCancelled(
-                    f"Cannot access external API {func}.  Service is not running: "
-                    f"started={manager.is_started}  running={manager.is_running} "
-                    f"stopping={manager.is_stopping}  finished={manager.is_finished}"
+                    f"Cannot access external API {func}.  Service {self} is not running: "
                 )
             else:
                 raise Exception("Code path should be unreachable")

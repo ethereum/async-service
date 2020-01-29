@@ -211,7 +211,6 @@ class BaseManager(InternalManagerAPI):
                 "S" if self.is_started else "s",
                 "R" if self.is_running else "r",
                 "C" if self.is_cancelled else "c",
-                "P" if self.is_stopping else "p",
                 "F" if self.is_finished else "f",
                 "E" if self.did_error else "e",
             )
@@ -223,7 +222,7 @@ class BaseManager(InternalManagerAPI):
     #
     @property
     def is_running(self) -> bool:
-        return self.is_started and not (self.is_stopping or self.is_finished)
+        return self.is_started and not self.is_finished
 
     @property
     def did_error(self) -> bool:
