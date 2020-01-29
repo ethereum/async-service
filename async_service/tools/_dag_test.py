@@ -96,7 +96,7 @@ class DAGServiceTest(Service):
             self.logger.info("task-%d: FINISH", task_id)
 
     async def _do_child(self, task_id: int, resource: Resource) -> None:
-        self.logger.info("child--%d: START", task_id)
+        self.logger.info("child-%d: START", task_id)
         assert resource.is_active
         assert not resource.was_checked
 
@@ -134,6 +134,7 @@ class DAGServiceTest(Service):
             resource.was_checked is False for resource in self._task_resources.values()
         )
         resource = self._task_resources[0]
+
         try:
             await self._do_task(0, resource)
         finally:

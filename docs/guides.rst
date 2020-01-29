@@ -57,27 +57,26 @@ Each service has a well defined lifecycle.
          |
          v
     +----------+
-    | STOPPING |
-    +----------+
-         |
-         v
-    +----------+
     | FINISHED |
     +----------+
 
 * Started:
-    - The :meth:`~async_service.base.Service.run` method has been scheduled to run.
+    - The :meth:`~async_service.abc.ServiceAPI.run` method has been scheduled to run.
 * Running:
     - The service has started and is still running (has not been cancelled and
       has not finished)
-* Stopping:
-    - The service is in the process of stopping.  This can be triggered either
-      by a call to :meth:`~async_service.abc.ManagerAPI.cancel` or by the
-      service exiting naturally.  At this stage tasks may still be running in
-      the background but will soon be forcibly cancelled.
 * Finished
     - The service has stopped.  All background tasks have either completed or
       been cancelled.
+
+
+Cancellation
+------------
+
+Calling :meth:`~async_service.abc.ManagerAPI.cancel` will trigger cancellation
+of the service and all child tasks and child services.  A service that has been
+cancelled will still register as "running" until all child tasks have been
+cancelled and the service registers as "finished".
 
 
 Managers
@@ -110,13 +109,6 @@ state.
         # check if the service has been cancelled
         if manager.is_cancelled:
             ...
-
-        # check if the service is stopping
-        if manager.is_stopping:
-            ...
-
-        # wait for the process of shutting down the service to begin
-        await manager.wait_stopping()
 
         # check if the service is finished
         if manager.is_finished:
@@ -204,7 +196,7 @@ service.  This can be done by passing ``daemon=True`` into the call to
 
 Alternatively we can use :meth:`~async_service.abc._InternalManagerAPI.run_daemon_task`.
 
-A *"Daemon"* task which finishes before the service is stopping will trigger
+A *"Daemon"* task which finishes before the service is shuts down will trigger
 cancellation and result in the
 :class:`~async_service.exceptions.DaemonTaskExit` exception to be raised.
 

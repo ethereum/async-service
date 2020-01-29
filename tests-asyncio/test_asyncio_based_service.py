@@ -24,7 +24,6 @@ async def do_service_lifecycle_check(
     assert manager.is_started is False
     assert manager.is_running is False
     assert manager.is_cancelled is False
-    assert manager.is_stopping is False
     assert manager.is_finished is False
 
     asyncio.ensure_future(manager_run_fn())
@@ -34,22 +33,24 @@ async def do_service_lifecycle_check(
     assert manager.is_started is True
     assert manager.is_running is True
     assert manager.is_cancelled is False
-    assert manager.is_stopping is False
     assert manager.is_finished is False
 
     # trigger the service to exit
     trigger_exit_condition_fn()
 
-    await asyncio.wait_for(manager.wait_stopping(), timeout=0.1)
+    await asyncio.sleep(0)
 
     if should_be_cancelled:
         assert manager.is_started is True
         # We cannot determine whether the service should be running at this
         # stage because a service is considered running until it is marked as
-        # stopping.  Since it may be cancelled but still not stopped we
+        # finished.  Since it may be cancelled but still not finished we
         # can't know.
         assert manager.is_cancelled is True
-        assert manager.is_stopping is True
+        # The service will either still register as *running* if it is in the
+        # process of shutting down, or *finished* if it has finished shutting
+        # down.
+        assert manager.is_running is True or manager.is_finished is True
         # We cannot determine whether a service should be finished at this
         # stage as it could have exited cleanly and is now finished or it
         # might be doing some cleanup after which it will register as being
@@ -60,7 +61,6 @@ async def do_service_lifecycle_check(
     assert manager.is_started is True
     assert manager.is_running is False
     assert manager.is_cancelled is should_be_cancelled
-    assert manager.is_stopping is False
     assert manager.is_finished is True
 
 
@@ -310,11 +310,11 @@ async def test_asyncio_service_manager_run_task_can_still_cancel_after_run_finis
 
         # show that the service hangs waiting for the task to complete.
         with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(manager.wait_stopping(), timeout=0.01)
+            await asyncio.wait_for(manager.wait_finished(), timeout=0.01)
 
         # trigger cancellation and see that the service actually stops
         manager.cancel()
-        await asyncio.wait_for(manager.wait_stopping(), timeout=0.01)
+        await asyncio.wait_for(manager.wait_finished(), timeout=0.01)
 
 
 @pytest.mark.asyncio
@@ -333,7 +333,7 @@ async def test_asyncio_service_manager_run_task_reraises_exceptions():
     with pytest.raises(BaseException, match="task exception in run_task"):
         async with background_asyncio_service(RunTaskService()) as manager:
             task_event.set()
-            await manager.wait_stopping()
+            await manager.wait_finished()
             pass
 
 
@@ -349,10 +349,12 @@ async def test_asyncio_service_manager_run_daemon_task_cancels_if_exits():
         manager.run_daemon_task(daemon_task_fn, name="daemon_task_fn")
         await asyncio.wait_for(asyncio.sleep(100), timeout=1)
 
-    with pytest.raises(DaemonTaskExit, match="Daemon task daemon_task_fn exited"):
+    with pytest.raises(
+        DaemonTaskExit, match=r"Daemon task daemon_task_fn\[daemon=True\] exited"
+    ):
         async with background_asyncio_service(RunTaskService()) as manager:
             task_event.set()
-            await manager.wait_stopping()
+            await manager.wait_finished()
 
 
 @pytest.mark.asyncio

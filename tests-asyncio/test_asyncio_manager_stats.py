@@ -20,14 +20,20 @@ async def test_asyncio_manager_stats():
             self.manager.run_task(asyncio.sleep, 0)
 
             # 1 that spawns some children
-            self.manager.run_task(self.run_with_children, 5)
+            self.manager.run_task(self.run_with_children, 4)
 
         async def run_with_children(self, num_children):
             for _ in range(num_children):
                 self.manager.run_task(asyncio.sleep, 100)
             ready.set()
 
-    async with background_asyncio_service(StatsTest()) as manager:
+        def run_external_root(self):
+            self.manager.run_task(asyncio.sleep, 0)
+
+    service = StatsTest()
+    async with background_asyncio_service(service) as manager:
+        service.run_external_root()
+        assert len(manager._root_tasks) == 2
         await asyncio.wait_for(ready.wait(), timeout=1)
 
         # we need to yield to the event loop a few times to allow the various
@@ -36,12 +42,12 @@ async def test_asyncio_manager_stats():
             await asyncio.sleep(0)
 
         assert manager.stats.tasks.total_count == 10
-        assert manager.stats.tasks.finished_count == 2
-        assert manager.stats.tasks.pending_count == 8
+        assert manager.stats.tasks.finished_count == 3
+        assert manager.stats.tasks.pending_count == 7
 
         # This is a simple test to ensure that finished tasks are removed from
         # tracking to prevent unbounded memory growth.
-        assert len(manager._service_task_dag) == 9
+        assert len(manager._root_tasks) == 1
 
     # now check after exiting
     assert manager.stats.tasks.total_count == 10

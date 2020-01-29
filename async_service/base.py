@@ -1,13 +1,32 @@
+from abc import abstractmethod
+import asyncio
 import logging
-from typing import Any, Awaitable, Callable, List, Type
+import sys
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Type,
+    TypeVar,
+    cast,
+)
+import uuid
 
-from .abc import InternalManagerAPI, ManagerAPI, ServiceAPI
-from .exceptions import LifecycleError
+from .abc import InternalManagerAPI, ManagerAPI, ServiceAPI, TaskAPI
+from .exceptions import DaemonTaskExit, LifecycleError
 from .stats import Stats, TaskStats
-from .typing import EXC_INFO
+from .typing import EXC_INFO, AsyncFn
 
 
 class Service(ServiceAPI):
+    def __str__(self) -> str:
+        return self.__class__.__name__
+
     @property
     def manager(self) -> "InternalManagerAPI":
         """
@@ -50,6 +69,117 @@ def as_service(service_fn: LogicFnType) -> Type[ServiceAPI]:
     return _Service
 
 
+class BaseTask(TaskAPI):
+    def __init__(self, name: str, daemon: bool, parent: Optional["TaskAPI"]) -> None:
+        # meta
+        self.name = name
+        self.daemon = daemon
+
+        # parent task
+        self.parent = parent
+
+        # For hashable interface.
+        self._id = uuid.uuid4()
+
+    def __hash__(self) -> int:
+        return hash(self._id)
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, TaskAPI):
+            return hash(self) == hash(other)
+        else:
+            return False
+
+    def __str__(self) -> str:
+        return f"{self.name}[daemon={self.daemon}]"
+
+
+T = TypeVar("T", bound="BaseFunctionTask")
+
+
+class BaseFunctionTask(BaseTask):
+    children: Set[TaskAPI]
+
+    @classmethod
+    def iterate_tasks(cls: Type[T], *tasks: TaskAPI) -> Iterable[T]:
+        for task in tasks:
+            if isinstance(task, cls):
+                yield task
+            else:
+                continue
+
+            yield from cls.iterate_tasks(
+                *(
+                    child_task
+                    # mypy cannot infer the type of `task`.
+                    for child_task in task.children  # type: ignore
+                    if isinstance(child_task, cls)
+                )
+            )
+
+    def __init__(
+        self,
+        name: str,
+        daemon: bool,
+        parent: Optional[TaskAPI],
+        async_fn: AsyncFn,
+        async_fn_args: Sequence[Any],
+    ) -> None:
+        super().__init__(name, daemon, parent)
+
+        self._async_fn = async_fn
+        self._async_fn_args = async_fn_args
+
+        # tracking of child tasks.
+        self.children = set()
+
+    #
+    # Core Task API
+    #
+    def add_child(self, child: TaskAPI) -> None:
+        self.children.add(child)
+
+    def discard_child(self, child: TaskAPI) -> None:
+        self.children.discard(child)
+
+
+class BaseChildServiceTask(BaseTask):
+    _child_service: ServiceAPI
+    child_manager: ManagerAPI
+
+    #
+    # Core Task API
+    #
+    def add_child(self, child: TaskAPI) -> None:
+        raise NotImplementedError("ChildServiceTask should never have children")
+
+    def discard_child(self, child: TaskAPI) -> None:
+        raise NotImplementedError("ChildServiceTask should never have children")
+
+    async def run(self) -> None:
+        if self.child_manager.is_started:
+            raise LifecycleError(
+                f"Child service {self._child_service} has already been started"
+            )
+
+        try:
+            await self.child_manager.run()
+
+            if self.daemon:
+                raise DaemonTaskExit(f"Daemon task {self} exited")
+        finally:
+            if self.parent is not None:
+                self.parent.discard_child(self)
+
+    @property
+    def is_done(self) -> bool:
+        return self.child_manager.is_finished
+
+    async def wait_done(self) -> None:
+        if self.child_manager.is_started:
+            await self.child_manager.wait_finished()
+
+
 class BaseManager(InternalManagerAPI):
     logger = logging.getLogger("async_service.Manager")
 
@@ -68,29 +198,31 @@ class BaseManager(InternalManagerAPI):
         # errors
         self._errors = []
 
+        # tasks
+        self._root_tasks: Set[TaskAPI] = set()
+
         # stats
         self._total_task_count = 0
         self._done_task_count = 0
 
     def __str__(self) -> str:
-        return (
-            "<Manager  "
-            f"service={self._service}  "
-            f"started={self.is_started}  "
-            f"running={self.is_running}  "
-            f"cancelled={self.is_cancelled}  "
-            f"stopping={self.is_stopping}  "
-            f"finished={self.is_finished}  "
-            f"did_error={self.did_error}"
-            ">"
+        status_flags = "".join(
+            (
+                "S" if self.is_started else "s",
+                "R" if self.is_running else "r",
+                "C" if self.is_cancelled else "c",
+                "F" if self.is_finished else "f",
+                "E" if self.did_error else "e",
+            )
         )
+        return f"<Manager[{self._service}] {status_flags}>"
 
     #
     # Event API mirror
     #
     @property
     def is_running(self) -> bool:
-        return self.is_started and not (self.is_stopping or self.is_finished)
+        return self.is_started and not self.is_finished
 
     @property
     def did_error(self) -> bool:
@@ -121,7 +253,7 @@ class BaseManager(InternalManagerAPI):
     def stats(self) -> Stats:
         # The `max` call here ensures that if this is called prior to the
         # `Service.run` method starting we don't return `-1`
-        total_count = max(0, self._total_task_count - 1)
+        total_count = max(0, self._total_task_count)
 
         # Since we track `Service.run` as a task, the `min` call here ensures
         # that when the service is fully done that we don't represent the
@@ -130,3 +262,58 @@ class BaseManager(InternalManagerAPI):
         return Stats(
             tasks=TaskStats(total_count=total_count, finished_count=finished_count)
         )
+
+    #
+    # Task Management
+    #
+    @abstractmethod
+    def _schedule_task(self, task: TaskAPI) -> None:
+        ...
+
+    def _common_run_task(self, task: TaskAPI) -> None:
+        if not self.is_running:
+            raise LifecycleError(
+                "Tasks may not be scheduled if the service is not running"
+            )
+
+        if self.is_running and self.is_cancelled:
+            self.logger.debug(
+                "%s: service is being cancelled. Not running task %s", self, task
+            )
+            return
+
+        if task.parent is None:
+            self.logger.debug("%s: running root task %s", self, task)
+            self._root_tasks.add(task)
+        else:
+            task.parent.add_child(task)
+            self.logger.debug("%s: %s running child task %s", self, task.parent, task)
+
+        self._total_task_count += 1
+
+        self._schedule_task(task)
+
+    async def _run_and_manage_task(self, task: TaskAPI) -> None:
+        self.logger.debug("%s: task %s running", self, task)
+
+        try:
+            await task.run()
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            self.logger.debug(
+                "%s: task %s exited with error: %s",
+                self,
+                task,
+                err,
+                # Only show stacktrace if this is **not** a DaemonTaskExit error
+                exc_info=not isinstance(err, DaemonTaskExit),
+            )
+            self._errors.append(cast(EXC_INFO, sys.exc_info()))
+            self.cancel()
+        else:
+            self.logger.debug("%s: task %s finished.", self, task)
+        finally:
+            if task.parent is None:
+                self._root_tasks.remove(task)
+            self._done_task_count += 1

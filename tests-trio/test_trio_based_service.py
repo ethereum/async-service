@@ -23,7 +23,6 @@ async def do_service_lifecycle_check(
         assert manager.is_started is False
         assert manager.is_running is False
         assert manager.is_cancelled is False
-        assert manager.is_stopping is False
         assert manager.is_finished is False
 
         nursery.start_soon(manager_run_fn)
@@ -34,14 +33,16 @@ async def do_service_lifecycle_check(
         assert manager.is_started is True
         assert manager.is_running is True
         assert manager.is_cancelled is False
-        assert manager.is_stopping is False
         assert manager.is_finished is False
 
         # trigger the service to exit
         trigger_exit_condition_fn()
 
-        with trio.fail_after(0.01):
-            await manager.wait_stopping()
+        # we need a few checkpoints in order for the background *things* to get
+        # to the right state.
+        await trio.hazmat.checkpoint()
+        await trio.hazmat.checkpoint()
+        await trio.hazmat.checkpoint()
 
         if should_be_cancelled:
             assert manager.is_started is True
@@ -49,13 +50,12 @@ async def do_service_lifecycle_check(
             # stage because a service is considered running until it is
             # finished.  Since it may be cancelled but still not finished we
             # can't know.
+            assert manager.is_cancelled is True
             # We also cannot determine whether a service should be finished at this
             # stage as it could have exited cleanly and is now finished or it
             # might be doing some cleanup after which it will register as being
-            # finished, so we must check manager._stopping directly as the is_stopping property
-            # returns False if the service is already finished.
-            assert manager._stopping.is_set() is True
-            assert manager.is_cancelled is True
+            # finished.
+            assert manager.is_running is True or manager.is_finished is True
 
         with trio.fail_after(0.1):
             await manager.wait_finished()
@@ -63,7 +63,6 @@ async def do_service_lifecycle_check(
         assert manager.is_started is True
         assert manager.is_running is False
         assert manager.is_cancelled is should_be_cancelled
-        assert manager.is_stopping is False
         assert manager.is_finished is True
 
 
@@ -74,7 +73,6 @@ def test_service_manager_initial_state():
     assert manager.is_started is False
     assert manager.is_running is False
     assert manager.is_cancelled is False
-    assert manager.is_stopping is False
     assert manager.is_finished is False
 
 
@@ -254,8 +252,8 @@ async def test_multierror_in_run():
 
     exc = exc_info.value
     assert len(exc.exceptions) == 2
-    assert isinstance(exc.exceptions[0], RuntimeError)
-    assert isinstance(exc.exceptions[1], DaemonTaskExit)
+    assert any(isinstance(err, RuntimeError) for err in exc.exceptions)
+    assert any(isinstance(err, DaemonTaskExit) for err in exc.exceptions)
 
 
 @pytest.mark.trio
@@ -270,13 +268,11 @@ async def test_trio_service_background_service_context_manager():
         assert manager.is_started is True
         assert manager.is_running is True
         assert manager.is_cancelled is False
-        assert manager.is_stopping is False
         assert manager.is_finished is False
 
     assert manager.is_started is True
     assert manager.is_running is False
     assert manager.is_cancelled is True
-    assert manager.is_stopping is False
     assert manager.is_finished is True
 
 
@@ -288,7 +284,6 @@ async def test_trio_service_manager_stop():
         assert manager.is_started is True
         assert manager.is_running is True
         assert manager.is_cancelled is False
-        assert manager.is_stopping is False
         assert manager.is_finished is False
 
         await manager.stop()
@@ -296,7 +291,6 @@ async def test_trio_service_manager_stop():
         assert manager.is_started is True
         assert manager.is_running is False
         assert manager.is_cancelled is True
-        assert manager.is_stopping is False
         assert manager.is_finished is True
 
 
@@ -310,7 +304,7 @@ async def test_trio_service_manager_run_task():
             task_event.set()
 
         manager.run_task(task_fn)
-        await manager.wait_stopping()
+        await manager.wait_finished()
 
     async with background_trio_service(RunTaskService()):
         with trio.fail_after(0.1):
@@ -403,7 +397,9 @@ async def test_trio_service_manager_run_daemon_task_cancels_if_exits():
         with trio.fail_after(1):
             await trio.sleep_forever()
 
-    with pytest.raises(DaemonTaskExit, match="Daemon task daemon_task_fn exited"):
+    with pytest.raises(
+        DaemonTaskExit, match=r"Daemon task daemon_task_fn\[daemon=True\] exited"
+    ):
         async with background_trio_service(RunTaskService()):
             task_event.set()
             with trio.fail_after(1):
