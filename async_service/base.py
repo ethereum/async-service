@@ -215,7 +215,7 @@ class BaseManager(InternalManagerAPI):
                 "E" if self.did_error else "e",
             )
         )
-        return f"<Manager[{self._service}] {status_flags}>"
+        return f"<Manager[{self._service}] flags={status_flags}>"
 
     #
     # Event API mirror
