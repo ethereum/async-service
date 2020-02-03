@@ -38,7 +38,7 @@ async def do_service_lifecycle_check(
     # trigger the service to exit
     trigger_exit_condition_fn()
 
-    await asyncio.sleep(0)
+    await asyncio.wait_for(manager.wait_finished(), timeout=0.1)
 
     if should_be_cancelled:
         assert manager.is_started is True
@@ -55,8 +55,6 @@ async def do_service_lifecycle_check(
         # stage as it could have exited cleanly and is now finished or it
         # might be doing some cleanup after which it will register as being
         # finished.
-
-    await asyncio.wait_for(manager.wait_finished(), timeout=0.1)
 
     assert manager.is_started is True
     assert manager.is_running is False
@@ -196,15 +194,16 @@ async def test_multierror_in_run():
 
     class ServiceTest(Service):
         async def run(self):
-            self.manager.run_daemon_task(self.daemon_task_fn)
-            await asyncio.sleep(
-                0.1
-            )  # Give a chance for our daemon task to be scheduled.
+            ready = asyncio.Event()
+            self.manager.run_task(self.error_fn, ready)
+            await ready.wait()
             trigger_error.set()
             raise RuntimeError("Exception inside Service.run()")
 
-        async def daemon_task_fn(self):
+        async def error_fn(self, ready):
+            ready.set()
             await trigger_error.wait()
+            raise ValueError("Exception inside error_fn")
 
     with pytest.raises(MultiError) as exc_info:
         await AsyncioManager.run_service(ServiceTest())
@@ -212,7 +211,7 @@ async def test_multierror_in_run():
     exc = exc_info.value
     assert len(exc.exceptions) == 2
     assert isinstance(exc.exceptions[0], RuntimeError)
-    assert isinstance(exc.exceptions[1], DaemonTaskExit)
+    assert isinstance(exc.exceptions[1], ValueError)
 
 
 @pytest.mark.asyncio
@@ -396,6 +395,47 @@ async def test_asyncio_service_lifecycle_run_and_clean_exit_with_child_service()
         trigger_exit_condition_fn=trigger_exit.set,
         should_be_cancelled=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_with_daemon_child_service():
+    ready = asyncio.Event()
+
+    @as_service
+    async def ChildServiceTest(manager):
+        await manager.wait_finished()
+
+    @as_service
+    async def ServiceTest(manager):
+        child_manager = manager.run_daemon_child_service(ChildServiceTest())
+        await child_manager.wait_started()
+        ready.set()
+        await manager.wait_finished()
+
+    service = ServiceTest()
+    async with background_asyncio_service(service):
+        await ready.wait()
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_with_daemon_child_task():
+    ready = asyncio.Event()
+    started = asyncio.Event()
+
+    async def _task():
+        started.set()
+        await asyncio.sleep(100)
+
+    @as_service
+    async def ServiceTest(manager):
+        manager.run_daemon_task(_task)
+        await started.wait()
+        ready.set()
+        await manager.wait_finished()
+
+    service = ServiceTest()
+    async with background_asyncio_service(service):
+        await ready.wait()
 
 
 @pytest.mark.asyncio

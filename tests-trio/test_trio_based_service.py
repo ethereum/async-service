@@ -38,11 +38,8 @@ async def do_service_lifecycle_check(
         # trigger the service to exit
         trigger_exit_condition_fn()
 
-        # we need a few checkpoints in order for the background *things* to get
-        # to the right state.
-        await trio.hazmat.checkpoint()
-        await trio.hazmat.checkpoint()
-        await trio.hazmat.checkpoint()
+        with trio.fail_after(0.1):
+            await manager.wait_finished()
 
         if should_be_cancelled:
             assert manager.is_started is True
@@ -56,9 +53,6 @@ async def do_service_lifecycle_check(
             # might be doing some cleanup after which it will register as being
             # finished.
             assert manager.is_running is True or manager.is_finished is True
-
-        with trio.fail_after(0.1):
-            await manager.wait_finished()
 
         assert manager.is_started is True
         assert manager.is_running is False
@@ -207,6 +201,7 @@ async def test_trio_service_lifecycle_run_and_daemon_task_exit():
             await trigger_error.wait()
 
         manager.run_daemon_task(daemon_task_fn)
+        await manager.wait_finished()
 
     service = ServiceTest()
     manager = TrioManager(service)
@@ -232,20 +227,16 @@ async def test_multierror_in_run():
 
     class ServiceTest(Service):
         async def run(self):
-            in_daemon = trio.Event()
-            self.manager.run_daemon_task(self.daemon_task_fn, in_daemon)
+            ready = trio.Event()
+            self.manager.run_task(self.error_fn, ready)
+            await ready.wait()
             trigger_error.set()
-            await in_daemon.wait()
             raise RuntimeError("Exception inside Service.run()")
 
-        async def daemon_task_fn(self, in_daemon):
-            try:
-                await trigger_error.wait()
-            finally:
-                in_daemon.set()
-                # this yields *briefly* to allow the main `run()` to error at
-                # basically the same moment this exits.
-                await trio.hazmat.checkpoint()
+        async def error_fn(self, ready):
+            ready.set()
+            await trigger_error.wait()
+            raise ValueError("Exception inside error_fn")
 
     with pytest.raises(trio.MultiError) as exc_info:
         await TrioManager.run_service(ServiceTest())
@@ -253,7 +244,7 @@ async def test_multierror_in_run():
     exc = exc_info.value
     assert len(exc.exceptions) == 2
     assert any(isinstance(err, RuntimeError) for err in exc.exceptions)
-    assert any(isinstance(err, DaemonTaskExit) for err in exc.exceptions)
+    assert any(isinstance(err, ValueError) for err in exc.exceptions)
 
 
 @pytest.mark.trio
@@ -445,6 +436,47 @@ async def test_trio_service_lifecycle_run_and_clean_exit_with_child_service():
         trigger_exit_condition_fn=trigger_exit.set,
         should_be_cancelled=False,
     )
+
+
+@pytest.mark.trio
+async def test_trio_service_with_daemon_child_service():
+    ready = trio.Event()
+
+    @as_service
+    async def ChildServiceTest(manager):
+        await manager.wait_finished()
+
+    @as_service
+    async def ServiceTest(manager):
+        child_manager = manager.run_daemon_child_service(ChildServiceTest())
+        await child_manager.wait_started()
+        ready.set()
+        await manager.wait_finished()
+
+    service = ServiceTest()
+    async with background_trio_service(service):
+        await ready.wait()
+
+
+@pytest.mark.trio
+async def test_trio_service_with_daemon_child_task():
+    ready = trio.Event()
+    started = trio.Event()
+
+    async def _task():
+        started.set()
+        await trio.sleep(100)
+
+    @as_service
+    async def ServiceTest(manager):
+        manager.run_daemon_task(_task)
+        await started.wait()
+        ready.set()
+        await manager.wait_finished()
+
+    service = ServiceTest()
+    async with background_trio_service(service):
+        await ready.wait()
 
 
 @pytest.mark.trio
