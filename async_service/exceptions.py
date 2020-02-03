@@ -20,11 +20,3 @@ class DaemonTaskExit(ServiceException):
     """
 
     pass
-
-
-class ServiceCancelled(ServiceException):
-    """
-    Raised by external service APIs when a service is cancelled.
-    """
-
-    pass

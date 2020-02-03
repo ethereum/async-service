@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from async_service import Service, ServiceCancelled, background_asyncio_service
+from async_service import LifecycleError, Service, background_asyncio_service
 from async_service.asyncio import external_api
 
 
@@ -24,7 +24,7 @@ async def test_asyncio_service_external_api_fails_before_start():
     service = ExternalAPIService()
 
     # should raise if the service has not yet been started.
-    with pytest.raises(ServiceCancelled):
+    with pytest.raises(LifecycleError):
         await service.get_7()
 
 
@@ -76,12 +76,12 @@ async def test_asyncio_service_external_api_raises_when_cancelled():
         # Since the task is in the middle of executing it wn't be done and thus
         # this should fail.  This should be hitting the `asyncio.wait(...)`
         # mechanism.
-        with pytest.raises(ServiceCancelled):
+        with pytest.raises(LifecycleError):
             assert await task == 7
 
         # A direct call should also fail.  This *should* be hitting the early
         # return mechanism.
-        with pytest.raises(ServiceCancelled):
+        with pytest.raises(LifecycleError):
             assert await service.get_7()
 
 
@@ -95,7 +95,7 @@ async def test_asyncio_service_external_api_raises_when_finished():
     assert manager.is_finished
     # A direct call should also fail.  This *should* be hitting the early
     # return mechanism.
-    with pytest.raises(ServiceCancelled):
+    with pytest.raises(LifecycleError):
         assert await service.get_7()
 
 
