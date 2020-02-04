@@ -297,7 +297,13 @@ class BaseManager(InternalManagerAPI):
         self.logger.debug("%s: task %s running", self, task)
 
         try:
-            await task.run()
+            try:
+                await task.run()
+            except DaemonTaskExit:
+                if self.is_cancelled:
+                    pass
+                else:
+                    raise
         except asyncio.CancelledError:
             raise
         except Exception as err:
