@@ -21,7 +21,7 @@ import trio_typing
 from ._utils import get_task_name
 from .abc import ManagerAPI, ServiceAPI, TaskAPI
 from .base import BaseChildServiceTask, BaseFunctionTask, BaseManager
-from .exceptions import DaemonTaskExit, LifecycleError, ServiceCancelled
+from .exceptions import DaemonTaskExit, LifecycleError
 from .typing import EXC_INFO, AsyncFn
 
 
@@ -316,7 +316,7 @@ async def _wait_finished(
         await channel.send(
             (
                 None,
-                ServiceCancelled(
+                LifecycleError(
                     f"Cannot access external API {api_func}.  Service {service} is not running: "
                 ),
             )
@@ -327,7 +327,7 @@ async def _wait_finished(
     await channel.send(
         (
             None,
-            ServiceCancelled(
+            LifecycleError(
                 f"Cannot access external API {api_func}.  Service {service} is not running: "
             ),
         )
@@ -358,14 +358,14 @@ def external_api(func: TFunc) -> TFunc:
     @functools.wraps(func)
     async def inner(self: ServiceAPI, *args: Any, **kwargs: Any) -> Any:
         if not hasattr(self, "manager"):
-            raise ServiceCancelled(
+            raise LifecycleError(
                 f"Cannot access external API {func}.  Service {self} has not been run."
             )
 
         manager = self.get_manager()
 
         if not manager.is_running:
-            raise ServiceCancelled(
+            raise LifecycleError(
                 f"Cannot access external API {func}.  Service {self} is not running: "
             )
 

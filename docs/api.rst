@@ -90,6 +90,10 @@ background_trio_service
 
 .. autofunction:: async_service.asyncio.background_asyncio_service
 
+external_api
+--------------------------
+
+.. autofunction:: async_service.trio.external_api
 
 Exceptions
 ~~~~~~~~~~
@@ -106,15 +110,6 @@ LifecycleError
 --------------
 
 .. autoclass:: async_service.exceptions.LifecycleError
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-
-ServiceCancelled
-----------------
-
-.. autoclass:: async_service.exceptions.ServiceCancelled
     :members:
     :undoc-members:
     :show-inheritance:

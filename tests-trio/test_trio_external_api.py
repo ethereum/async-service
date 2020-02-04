@@ -1,7 +1,7 @@
 import pytest
 import trio
 
-from async_service import Service, ServiceCancelled, background_trio_service
+from async_service import LifecycleError, Service, background_trio_service
 from async_service.trio import external_api
 
 
@@ -23,7 +23,7 @@ async def test_trio_service_external_api_fails_before_start():
     service = ExternalAPIService()
 
     # should raise if the service has not yet been started.
-    with pytest.raises(ServiceCancelled):
+    with pytest.raises(LifecycleError):
         await service.get_7()
 
 
@@ -40,7 +40,7 @@ async def test_trio_service_external_api_raises_when_cancelled():
     service = ExternalAPIService()
 
     async with background_trio_service(service) as manager:
-        with pytest.raises(ServiceCancelled):
+        with pytest.raises(LifecycleError):
             async with trio.open_nursery() as nursery:
                 # an event to ensure that we are indeed within the body of the
                 is_within_fn = trio.Event()
@@ -59,7 +59,7 @@ async def test_trio_service_external_api_raises_when_cancelled():
 
         # A direct call should also fail.  This *should* be hitting the early
         # return mechanism.
-        with pytest.raises(ServiceCancelled):
+        with pytest.raises(LifecycleError):
             assert await service.get_7()
 
 
@@ -73,7 +73,7 @@ async def test_trio_service_external_api_raises_when_finished():
     assert manager.is_finished
     # A direct call should also fail.  This *should* be hitting the early
     # return mechanism.
-    with pytest.raises(ServiceCancelled):
+    with pytest.raises(LifecycleError):
         assert await service.get_7()
 
 

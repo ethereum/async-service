@@ -262,8 +262,8 @@ Sometimes we may want to expose an API from a
 should only work if the service is running, and calls should fail or be
 terminated if the service is cancelled or finishes.
 
-This can be done with the :func:`~async_service.asyncio.external_api`
-decorator.
+This can be done with the :func:`~async_service.external_asyncio_api` and
+:func:`~async_service.external_trio_api` decorators.
 
 .. code-block:: python
 
@@ -295,7 +295,7 @@ decorator.
 
 
 When a method decorated with :func:`~async_service.external_asyncio_api` fails
-it raises an :class:`async_service.exceptions.ServiceCancelled` exception.
+it raises an :class:`async_service.exceptions.LifecycleError` exception.
 
 
 Cleanup logic
