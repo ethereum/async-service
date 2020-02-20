@@ -187,6 +187,17 @@ async def test_asyncio_service_lifecycle_run_and_daemon_task_exit():
 
 
 @pytest.mark.asyncio
+async def test_error_in_service_run():
+    class ServiceTest(Service):
+        async def run(self):
+            self.manager.run_daemon_task(self.manager.wait_finished)
+            raise ValueError("Exception inside run()")
+
+    with pytest.raises(ValueError):
+        await AsyncioManager.run_service(ServiceTest())
+
+
+@pytest.mark.asyncio
 async def test_multierror_in_run():
     # This test should cause ServiceTest to raise a trio.MultiError containing two exceptions --
     # one raised inside its run() method and another raised by the daemon task exiting early.

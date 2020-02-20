@@ -133,7 +133,13 @@ class AsyncioManager(BaseManager):
         # cancelled as part of the global task nursery's cancellation.
         for task in tuple(self._root_tasks):
             try:
+                self.logger.debug(
+                    "%s: triggering cancellation of root task %s and all its children",
+                    self,
+                    task.name,
+                )
                 await task.cancel()
+                self.logger.debug("%s: cancelled %s", self, task.name)
             except Exception:
                 self._errors.append(cast(EXC_INFO, sys.exc_info()))
 
@@ -162,6 +168,7 @@ class AsyncioManager(BaseManager):
         while self._asyncio_tasks:
             done_tasks = tuple(task for task in self._asyncio_tasks if task.done())
             for task in done_tasks:
+                self.logger.debug("%s: waiting for %s to finish", task)
                 try:
                     await task
                 except asyncio.CancelledError:
