@@ -318,8 +318,11 @@ class BaseManager(InternalManagerAPI):
             self._errors.append(cast(EXC_INFO, sys.exc_info()))
             self.cancel()
         else:
+            if task.parent is None:
+                # XXX: I believe that by removing root tasks from self._root_tasks we will no
+                # longer trigger cancellation of any of its children upon service cancellation,
+                # which will in turn cause the manager to hang forever.
+                self._root_tasks.remove(task)
             self.logger.debug("%s: task %s finished.", self, task)
         finally:
-            if task.parent is None:
-                self._root_tasks.remove(task)
             self._done_task_count += 1
