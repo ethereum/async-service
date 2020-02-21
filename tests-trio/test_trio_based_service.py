@@ -612,3 +612,33 @@ async def test_trio_service_with_try_finally_cleanup_with_shielded_await():
         assert not service.cleanup_up
         manager.cancel()
     assert service.cleanup_up
+
+
+@pytest.mark.trio
+async def test_error_in_service_run():
+    class ServiceTest(Service):
+        async def run(self):
+            self.manager.run_daemon_task(self.manager.wait_finished)
+            raise ValueError("Exception inside run()")
+
+    with pytest.raises(ValueError):
+        await TrioManager.run_service(ServiceTest())
+
+
+@pytest.mark.trio
+async def test_daemon_task_finishes_leaving_children():
+    class ServiceTest(Service):
+        async def sleep_and_fail(self):
+            await trio.sleep(1)
+            raise AssertionError(
+                "This should not happen as the task should be cancelled"
+            )
+
+        async def buggy_daemon(self):
+            self.manager.run_task(self.sleep_and_fail)
+
+        async def run(self):
+            self.manager.run_daemon_task(self.buggy_daemon)
+
+    with pytest.raises(DaemonTaskExit):
+        await TrioManager.run_service(ServiceTest())

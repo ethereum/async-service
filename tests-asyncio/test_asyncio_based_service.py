@@ -198,6 +198,25 @@ async def test_error_in_service_run():
 
 
 @pytest.mark.asyncio
+async def test_daemon_task_finishes_leaving_children():
+    class ServiceTest(Service):
+        async def sleep_and_fail(self):
+            await asyncio.sleep(1)
+            raise AssertionError(
+                "This should not happen as the task should be cancelled"
+            )
+
+        async def buggy_daemon(self):
+            self.manager.run_task(self.sleep_and_fail)
+
+        async def run(self):
+            self.manager.run_daemon_task(self.buggy_daemon)
+
+    with pytest.raises(DaemonTaskExit):
+        await AsyncioManager.run_service(ServiceTest())
+
+
+@pytest.mark.asyncio
 async def test_multierror_in_run():
     # This test should cause ServiceTest to raise a trio.MultiError containing two exceptions --
     # one raised inside its run() method and another raised by the daemon task exiting early.

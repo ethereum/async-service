@@ -134,9 +134,10 @@ class AsyncioManager(BaseManager):
         for task in tuple(self._root_tasks):
             try:
                 self.logger.debug(
-                    "%s: triggering cancellation of root task %s and all its children",
+                    "%s: triggering cancellation of root task %s and all its children (%s)",
                     self,
                     task.name,
+                    [c.name for c in task.children],
                 )
                 await task.cancel()
                 self.logger.debug("%s: cancelled %s", self, task.name)
@@ -168,7 +169,7 @@ class AsyncioManager(BaseManager):
         while self._asyncio_tasks:
             done_tasks = tuple(task for task in self._asyncio_tasks if task.done())
             for task in done_tasks:
-                self.logger.debug("%s: waiting for %s to finish", task)
+                self.logger.debug("%s: waiting for %s to finish", self, task)
                 try:
                     await task
                 except asyncio.CancelledError:

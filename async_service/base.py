@@ -98,8 +98,6 @@ T = TypeVar("T", bound="BaseFunctionTask")
 
 
 class BaseFunctionTask(BaseTask):
-    children: Set[TaskAPI]
-
     @classmethod
     def iterate_tasks(cls: Type[T], *tasks: TaskAPI) -> Iterable[T]:
         for task in tasks:
@@ -303,8 +301,22 @@ class BaseManager(InternalManagerAPI):
                 if self.is_cancelled:
                     pass
                 else:
+                    new_parent = task.parent
+                    for child in task.children:
+                        child.parent = new_parent
+                        if new_parent is None:
+                            self._root_tasks.add(child)
+                        else:
+                            new_parent.add_child(child)
+                        self.logger.debug(
+                            "Daemon %s left child task (%s) behind, reassigning it to %s",
+                            task,
+                            child,
+                            new_parent or "root",
+                        )
                     raise
         except asyncio.CancelledError:
+            self.logger.debug("%s: task %s raised CancelledError.", self, task)
             raise
         except Exception as err:
             self.logger.debug(
@@ -319,10 +331,7 @@ class BaseManager(InternalManagerAPI):
             self.cancel()
         else:
             if task.parent is None:
-                # XXX: I believe that by removing root tasks from self._root_tasks we will no
-                # longer trigger cancellation of any of its children upon service cancellation,
-                # which will in turn cause the manager to hang forever.
                 self._root_tasks.remove(task)
-            self.logger.debug("%s: task %s finished.", self, task)
+            self.logger.debug("%s: task %s exited cleanly.", self, task)
         finally:
             self._done_task_count += 1
