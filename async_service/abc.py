@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Hashable, Optional
+from typing import Any, Hashable, Optional, Set
 
 import trio_typing
 
@@ -11,6 +11,7 @@ class TaskAPI(Hashable):
     name: str
     daemon: bool
     parent: Optional["TaskAPI"]
+    children: Set["TaskAPI"]
 
     @abstractmethod
     def add_child(self, child: "TaskAPI") -> None:
