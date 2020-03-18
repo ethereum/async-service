@@ -561,3 +561,51 @@ async def test_asyncio_service_with_try_finally_cleanup_with_await():
         assert not service.cleanup_up
         manager.cancel()
     assert service.cleanup_up
+
+
+@pytest.mark.asyncio
+async def test_keyboard_interrupt_coming_from_service_run():
+    # This is what will happen when Service.run() is executing and the process gets sent a
+    # SIGINT or the user hits Ctrl-C.
+    @as_service
+    async def AService(manager):
+        # Run a child task that sleeps forever to ensure all handling of KeyboardInterrupts
+        # cancels all childs and finishes the service.
+        manager.run_task(asyncio.sleep, 999)
+        # Give our child a chance to start before we crash.
+        await asyncio.sleep(0.1)
+        raise KeyboardInterrupt()
+
+    service = AService()
+    with pytest.raises(KeyboardInterrupt):
+        async with background_asyncio_service(service) as manager:
+            await manager.wait_finished()
+
+    assert manager.is_finished
+
+
+@pytest.mark.asyncio
+async def test_keyboard_interrupt_coming_from_service_child_task():
+    # TODO
+    pass
+
+
+@pytest.mark.asyncio
+async def test_keyboard_interrupt_coming_from_manager(monkeypatch):
+    # If the manager is executing when the process receives a SIGINT, that will cause
+    # _wait_all_tasks_done() to raise a KeyboardInterrupt
+    async def wait_all_tasks_done(self):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(AsyncioManager, '_wait_all_tasks_done', wait_all_tasks_done)
+
+    @as_service
+    async def AService(manager):
+        await manager.wait_finished()
+
+    service = AService()
+    with pytest.raises(KeyboardInterrupt):
+        async with background_asyncio_service(service) as manager:
+            await manager.wait_finished()
+
+    assert manager.is_finished
