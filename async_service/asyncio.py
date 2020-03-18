@@ -120,7 +120,7 @@ class AsyncioManager(BaseManager):
         """
         self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
         await self._cancelled.wait()
-        self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
+        self.logger.warning("%s: _handle_cancelled triggering task cancellation", self)
 
         # Here we iterate over the task DAG such that we cancel the most deeply
         # nested tasks first ensuring that each has finished completely before
@@ -139,8 +139,10 @@ class AsyncioManager(BaseManager):
                     task.name,
                     [c.name for c in task.children],
                 )
+                self.logger.warning(
+                    "%s: Waiting for root task cancellation %s", self, task)
                 await task.cancel()
-                self.logger.debug("%s: cancelled %s", self, task.name)
+                self.logger.warning("root task cancelled: %s", task)
             except Exception:
                 self._errors.append(cast(EXC_INFO, sys.exc_info()))
 
@@ -149,8 +151,11 @@ class AsyncioManager(BaseManager):
                 raise LifecycleError("Should have already been completed")
 
             try:
+                self.logger.warning("Waiting for child task %s", asyncio_task)
                 await asyncio_task
+                self.logger.warning("child task finished: %s", asyncio_task)
             except asyncio.CancelledError:
+                self.logger.warning("%s cancelled", asyncio_task)
                 pass
 
     @classmethod
@@ -171,20 +176,27 @@ class AsyncioManager(BaseManager):
             for task in done_tasks:
                 self.logger.debug("%s: waiting for %s to finish", self, task)
                 try:
+                    self.logger.warning("%s._wait_all_tasks_done(): Waiting for %s", self, task)
                     await task
+                    self.logger.warning("task finished")
                 except asyncio.CancelledError:
                     # suppressing the exception here is *ok* because the
                     # `CancelledError` is not important to the task lifecycle.
                     pass
+                    self.logger.warning("task cancelled")
                 finally:
+                    self.logger.warning("task discarded")
                     # Remove the finished tasks from tracking so that our
                     # memory footprint remains minimal.
                     self._asyncio_tasks.discard(task)
 
             if self._asyncio_tasks:
+                self.logger.warning(
+                    "%s._wait_all_tasks_done(): Waiting for %s", self, self._asyncio_tasks)
                 await asyncio.wait(
                     self._asyncio_tasks, return_when=asyncio.FIRST_COMPLETED
                 )
+        self.logger.warning("%s._wait_all_tasks returned", self)
 
     async def run(self) -> None:
         if self._run_lock.locked():

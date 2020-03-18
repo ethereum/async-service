@@ -319,7 +319,7 @@ class BaseManager(InternalManagerAPI):
             self.logger.debug("%s: task %s raised CancelledError.", self, task)
             raise
         except Exception as err:
-            self.logger.debug(
+            self.logger.info(
                 "%s: task %s exited with error: %s",
                 self,
                 task,
