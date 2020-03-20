@@ -318,8 +318,9 @@ class BaseManager(InternalManagerAPI):
         except asyncio.CancelledError:
             self.logger.debug("%s: task %s raised CancelledError.", self, task)
             raise
-        except Exception as err:
-            self.logger.info(
+        # except Exception as err:
+        except (Exception, KeyboardInterrupt) as err:
+            self.logger.warning(
                 "%s: task %s exited with error: %s",
                 self,
                 task,

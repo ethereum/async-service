@@ -158,6 +158,9 @@ class AsyncioManager(BaseManager):
                 self.logger.warning("%s cancelled", asyncio_task)
                 pass
 
+        # self._finished.set()
+        # self.logger.warning("%s: finished by handle_cancelled", self)
+
     @classmethod
     async def run_service(
         cls, service: ServiceAPI, loop: asyncio.AbstractEventLoop = None
@@ -222,10 +225,16 @@ class AsyncioManager(BaseManager):
                 # finishes.
                 self._total_task_count = 0
 
-                await self._wait_all_tasks_done()
+                try:
+                    # All components using run_asyncio_service() seem to have their
+                    # KeyboardInterrupt raised here. Why is that?
+                    await self._wait_all_tasks_done()
+                except KeyboardInterrupt:
+                    self.logger.exception("KeyboardInterrupt in %s._wait_all_tasks_done", self)
+                    raise
 
         self._finished.set()
-        self.logger.debug("%s: finished", self)
+        self.logger.warning("%s: finished", self)
 
         # Above we rely on run_task() and handle_cancelled() to run the
         # service/tasks and swallow/collect exceptions so that they can be
@@ -423,15 +432,32 @@ async def background_asyncio_service(
             await manager.wait_started()
 
             try:
+                # I don't really understand why, but for all services using
+                # background_asyncio_service(), the KeyboardInterrupt bubbles up here, and then
+                # we block forever when waiting for manager.stop() because the run() method is no
+                # longer running and that's the only place that sets manager.finished to True
+                # After the timeout we get a SIGTERM, which causes the manager.stop() call to
+                # return and the component to terminate
                 yield manager
+            except KeyboardInterrupt:
+                service.logger.exception("KeyboardInterrupt in background_run1: %s", service)
+                raise
             finally:
-                await manager.stop()
+                service.logger.warning("Waiting for %s.manager.stop()", service)
+                try:
+                    await asyncio.sleep(0.1)
+                    # await manager.stop()
+                except KeyboardInterrupt as ee:
+                    service.logger.warning("%s.manager.stop() errored: %s", service, repr(ee))
+                else:
+                    service.logger.warning("%s.manager.stop() finished", service)
     finally:
         if manager.did_error:
-            # TODO: better place for this.
+            service.logger.warning("background_asyncio_service() returning with error")
             raise MultiError(
                 tuple(
                     exc_value.with_traceback(exc_tb)
                     for _, exc_value, exc_tb in manager._errors
                 )
             )
+        service.logger.warning("background_asyncio_service() returning cleanly")
