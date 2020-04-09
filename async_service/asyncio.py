@@ -413,7 +413,24 @@ async def background_asyncio_service(
             try:
                 yield manager
             finally:
-                await manager.stop()
+                exc_t, _, _ = sys.exc_info()
+                if exc_t is None:
+                    manager.logger.warning("%s: no exception raised", service)
+                elif exc_t == KeyboardInterrupt:
+                    manager.logger.warning("%s: Raised KeyboardInterrupt!", service)
+                else:
+                    manager.logger.exception("%s: Raised other exception!", service)
+                try:
+                    await manager.stop()
+                    manager.logger.warning("%s: stopped!", service)
+                except KeyboardInterrupt:
+                    manager.logger.warning(
+                        "%s: Got KeyboardInterrupt while waiting for stop(), trying again", service)
+                    await manager.stop()
+                    manager.logger.warning("%s: stopped!", service)
+                except BaseException:
+                    manager.logger.exception("%s: Unexpected error waiting for stop()", service)
+                    raise
     finally:
         if manager.did_error:
             # TODO: better place for this.
