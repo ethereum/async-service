@@ -17,7 +17,13 @@ from typing import (
 )
 import uuid
 
-from .abc import InternalManagerAPI, ManagerAPI, ServiceAPI, TaskAPI
+from .abc import (
+    InternalManagerAPI,
+    ManagerAPI,
+    ServiceAPI,
+    TaskAPI,
+    TaskWithChildrenAPI,
+)
 from .exceptions import DaemonTaskExit, LifecycleError
 from .stats import Stats, TaskStats
 from .typing import EXC_INFO, AsyncFn
@@ -70,7 +76,9 @@ def as_service(service_fn: LogicFnType) -> Type[ServiceAPI]:
 
 
 class BaseTask(TaskAPI):
-    def __init__(self, name: str, daemon: bool, parent: Optional["TaskAPI"]) -> None:
+    def __init__(
+        self, name: str, daemon: bool, parent: Optional[TaskWithChildrenAPI]
+    ) -> None:
         # meta
         self.name = name
         self.daemon = daemon
@@ -94,10 +102,24 @@ class BaseTask(TaskAPI):
         return f"{self.name}[daemon={self.daemon}]"
 
 
+class BaseTaskWithChildren(BaseTask, TaskWithChildrenAPI):
+    def __init__(
+        self, name: str, daemon: bool, parent: Optional[TaskWithChildrenAPI]
+    ) -> None:
+        super().__init__(name, daemon, parent)
+        self.children = set()
+
+    def add_child(self, child: TaskAPI) -> None:
+        self.children.add(child)
+
+    def discard_child(self, child: TaskAPI) -> None:
+        self.children.discard(child)
+
+
 T = TypeVar("T", bound="BaseFunctionTask")
 
 
-class BaseFunctionTask(BaseTask):
+class BaseFunctionTask(BaseTaskWithChildren):
     @classmethod
     def iterate_tasks(cls: Type[T], *tasks: TaskAPI) -> Iterable[T]:
         for task in tasks:
@@ -119,7 +141,7 @@ class BaseFunctionTask(BaseTask):
         self,
         name: str,
         daemon: bool,
-        parent: Optional[TaskAPI],
+        parent: Optional[TaskWithChildrenAPI],
         async_fn: AsyncFn,
         async_fn_args: Sequence[Any],
     ) -> None:
@@ -128,31 +150,10 @@ class BaseFunctionTask(BaseTask):
         self._async_fn = async_fn
         self._async_fn_args = async_fn_args
 
-        # tracking of child tasks.
-        self.children = set()
-
-    #
-    # Core Task API
-    #
-    def add_child(self, child: TaskAPI) -> None:
-        self.children.add(child)
-
-    def discard_child(self, child: TaskAPI) -> None:
-        self.children.discard(child)
-
 
 class BaseChildServiceTask(BaseTask):
     _child_service: ServiceAPI
     child_manager: ManagerAPI
-
-    #
-    # Core Task API
-    #
-    def add_child(self, child: TaskAPI) -> None:
-        raise NotImplementedError("ChildServiceTask should never have children")
-
-    def discard_child(self, child: TaskAPI) -> None:
-        raise NotImplementedError("ChildServiceTask should never have children")
 
     async def run(self) -> None:
         if self.child_manager.is_started:
@@ -301,19 +302,20 @@ class BaseManager(InternalManagerAPI):
                 if self.is_cancelled:
                     pass
                 else:
-                    new_parent = task.parent
-                    for child in task.children:
-                        child.parent = new_parent
-                        if new_parent is None:
-                            self._root_tasks.add(child)
-                        else:
-                            new_parent.add_child(child)
-                        self.logger.debug(
-                            "Daemon %s left child task (%s) behind, reassigning it to %s",
-                            task,
-                            child,
-                            new_parent or "root",
-                        )
+                    if isinstance(task, TaskWithChildrenAPI):
+                        new_parent = task.parent
+                        for child in task.children:
+                            child.parent = new_parent
+                            if new_parent is None:
+                                self._root_tasks.add(child)
+                            else:
+                                new_parent.add_child(child)
+                            self.logger.debug(
+                                "Daemon %s left child task (%s) behind, reassigning it to %s",
+                                task,
+                                child,
+                                new_parent or "root",
+                            )
                     raise
         except asyncio.CancelledError:
             self.logger.debug("%s: task %s raised CancelledError.", self, task)

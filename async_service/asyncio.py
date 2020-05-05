@@ -17,7 +17,7 @@ from async_generator import asynccontextmanager
 from trio import MultiError
 
 from ._utils import get_task_name
-from .abc import ManagerAPI, ServiceAPI, TaskAPI
+from .abc import ManagerAPI, ServiceAPI, TaskAPI, TaskWithChildrenAPI
 from .asyncio_compat import get_current_task
 from .base import BaseChildServiceTask, BaseFunctionTask, BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError
@@ -74,7 +74,7 @@ class ChildServiceTask(BaseChildServiceTask):
         self,
         name: str,
         daemon: bool,
-        parent: Optional[TaskAPI],
+        parent: Optional[TaskWithChildrenAPI],
         child_service: ServiceAPI,
         loop: Optional[asyncio.AbstractEventLoop],
     ) -> None:
@@ -118,6 +118,18 @@ class AsyncioManager(BaseManager):
         When cancellation is requested this triggers the cancellation of all
         background tasks.
         """
+        try:
+            await self._real_handle_cancelled()
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            self.logger.exception(
+                "%s: unexpected error when cancelling tasks, service may not terminate",
+                self,
+            )
+            raise
+
+    async def _real_handle_cancelled(self) -> None:
         self.logger.debug("%s: _handle_cancelled waiting for cancellation", self)
         await self._cancelled.wait()
         self.logger.debug("%s: _handle_cancelled triggering task cancellation", self)
@@ -132,17 +144,26 @@ class AsyncioManager(BaseManager):
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
         for task in tuple(self._root_tasks):
-            try:
-                self.logger.debug(
-                    "%s: triggering cancellation of root task %s and all its children (%s)",
-                    self,
-                    task.name,
-                    [c.name for c in task.children],
+            msg = "%s: triggering cancellation of root task %s" % (self, task.name)
+            if isinstance(task, TaskWithChildrenAPI):
+                msg += " and all its children (%s)" % (
+                    [child.name for child in task.children]
                 )
+            self.logger.debug(msg)
+            try:
                 await task.cancel()
-                self.logger.debug("%s: cancelled %s", self, task.name)
-            except Exception:
+            except Exception as e:
+                # We log this because it may prevent us from reaching the end of run(), where
+                # self._errors would be raised, and in that case we'd never see this error.
+                self.logger.debug(
+                    "Error cancelling task %s: %s. %s may fail to terminate",
+                    task.name,
+                    e,
+                    self,
+                )
                 self._errors.append(cast(EXC_INFO, sys.exc_info()))
+            else:
+                self.logger.debug("%s: cancelled %s", self, task.name)
 
         for asyncio_task in tuple(self._asyncio_tasks):
             if not asyncio_task.done():
@@ -260,7 +281,7 @@ class AsyncioManager(BaseManager):
 
     def _find_parent_task(
         self, asyncio_task: "asyncio.Future[Any]"
-    ) -> Optional[TaskAPI]:
+    ) -> Optional[TaskWithChildrenAPI]:
         """
         Find the :class:`async_service.asyncio.FunctionTask` instance that corresponds to
         the given :class:`trio.hazmat.Task` instance.
