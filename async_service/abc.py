@@ -10,16 +10,7 @@ from .typing import AsyncFn
 class TaskAPI(Hashable):
     name: str
     daemon: bool
-    parent: Optional["TaskAPI"]
-    children: Set["TaskAPI"]
-
-    @abstractmethod
-    def add_child(self, child: "TaskAPI") -> None:
-        ...
-
-    @abstractmethod
-    def discard_child(self, child: "TaskAPI") -> None:
-        ...
+    parent: Optional["TaskWithChildrenAPI"]
 
     @abstractmethod
     async def run(self) -> None:
@@ -36,6 +27,18 @@ class TaskAPI(Hashable):
 
     @abstractmethod
     async def wait_done(self) -> None:
+        ...
+
+
+class TaskWithChildrenAPI(TaskAPI):
+    children: Set[TaskAPI]
+
+    @abstractmethod
+    def add_child(self, child: TaskAPI) -> None:
+        ...
+
+    @abstractmethod
+    def discard_child(self, child: TaskAPI) -> None:
         ...
 
 

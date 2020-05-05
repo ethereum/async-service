@@ -19,7 +19,7 @@ import trio
 import trio_typing
 
 from ._utils import get_task_name
-from .abc import ManagerAPI, ServiceAPI, TaskAPI
+from .abc import ManagerAPI, ServiceAPI, TaskAPI, TaskWithChildrenAPI
 from .base import BaseChildServiceTask, BaseFunctionTask, BaseManager
 from .exceptions import DaemonTaskExit, LifecycleError
 from .typing import EXC_INFO, AsyncFn
@@ -32,7 +32,7 @@ class FunctionTask(BaseFunctionTask):
         self,
         name: str,
         daemon: bool,
-        parent: Optional[TaskAPI],
+        parent: Optional[TaskWithChildrenAPI],
         async_fn: AsyncFn,
         async_fn_args: Sequence[Any],
     ) -> None:
@@ -103,7 +103,7 @@ class ChildServiceTask(BaseChildServiceTask):
         self,
         name: str,
         daemon: bool,
-        parent: Optional[TaskAPI],
+        parent: Optional[TaskWithChildrenAPI],
         child_service: ServiceAPI,
     ) -> None:
         super().__init__(name, daemon, parent)
@@ -244,7 +244,9 @@ class TrioManager(BaseManager):
     async def wait_finished(self) -> None:
         await self._finished.wait()
 
-    def _find_parent_task(self, trio_task: trio.hazmat.Task) -> Optional[TaskAPI]:
+    def _find_parent_task(
+        self, trio_task: trio.hazmat.Task
+    ) -> Optional[TaskWithChildrenAPI]:
         """
         Find the :class:`async_service.trio.FunctionTask` instance that corresponds to
         the given :class:`trio.hazmat.Task` instance.
