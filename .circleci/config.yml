@@ -84,6 +84,24 @@ jobs:
       - image: circleci/python:3.7
         environment:
           TOXENV: py37-trio
+  py38-asyncio:
+    <<: *common
+    docker:
+      - image: circleci/python:3.8
+        environment:
+          TOXENV: py38-asyncio
+  py38-core:
+    <<: *common
+    docker:
+      - image: circleci/python:3.8
+        environment:
+          TOXENV: py38-core
+  py38-trio:
+    <<: *common
+    docker:
+      - image: circleci/python:3.8
+        environment:
+          TOXENV: py38-trio
   pypy3-asyncio:
     <<: *common
     docker:
@@ -114,6 +132,9 @@ workflows:
       - py37-asyncio
       - py37-core
       - py37-trio
+      - py38-asyncio
+      - py38-core
+      - py38-trio
       - pypy3-asyncio
       - pypy3-core
       - pypy3-trio
