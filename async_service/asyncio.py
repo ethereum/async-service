@@ -327,6 +327,35 @@ class AsyncioManager(BaseManager):
         )
         self._common_run_task(task)
 
+    async def await_task(
+        self,
+        async_fn: Callable[..., Awaitable[Any]],
+        *args: Any,
+        *kwargs: Any,
+    ) -> Any:
+        if not self.is_running:
+            raise LifecycleError(
+                f"Cannot access external API {async_fn}.  Service {self} is not running: "
+            )
+
+        async_fn_task: "asyncio.Future[Any]" = asyncio.ensure_future(
+            async_fn(*args, **kwargs)
+        )
+        service_finished_task = asyncio.ensure_future(self.wait_finished())
+
+        done, pending = await asyncio.wait(
+            (async_fn_task, service_finished_task), return_when=asyncio.FIRST_COMPLETED
+        )
+        async with cleanup_tasks(*done, *pending):
+            if async_fn_task.done():
+                return await async_fn_task
+            elif service_finished_task.done():
+                raise LifecycleError(
+                    f"Cannot access external API {async_fn}.  Service {self} is not running: "
+                )
+            else:
+                raise Exception("Code path should be unreachable")
+
     def run_child_service(
         self, service: ServiceAPI, daemon: bool = False, name: str = None
     ) -> ManagerAPI:
@@ -388,30 +417,11 @@ def external_api(func: TFunc) -> TFunc:
 
         manager = self.get_manager()
 
-        if not manager.is_running:
-            raise LifecycleError(
-                f"Cannot access external API {func}.  Service {self} is not running: "
-            )
-
-        func_task: "asyncio.Future[Any]" = asyncio.ensure_future(
-            func(self, *args, **kwargs)
-        )
-        service_finished_task = asyncio.ensure_future(manager.wait_finished())
-
-        done, pending = await asyncio.wait(
-            (func_task, service_finished_task), return_when=asyncio.FIRST_COMPLETED
-        )
-        async with cleanup_tasks(*done, *pending):
-            if func_task.done():
-                return await func_task
-            elif service_finished_task.done():
-                raise LifecycleError(
-                    f"Cannot access external API {func}.  Service {self} is not running: "
-                )
-            else:
-                raise Exception("Code path should be unreachable")
+        return await manager.await_task(func, self, *args, **kwargs)
 
     return cast(TFunc, inner)
+
+
 
 
 @asynccontextmanager
