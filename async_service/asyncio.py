@@ -190,7 +190,8 @@ class AsyncioManager(BaseManager):
         while self._asyncio_tasks:
             done_tasks = tuple(task for task in self._asyncio_tasks if task.done())
             for task in done_tasks:
-                self.logger.debug("%s: waiting for %s to finish", self, task)
+                if self._verbose:
+                    self.logger.debug("%s: waiting for %s to finish", self, task)
                 try:
                     await task
                 except asyncio.CancelledError:
