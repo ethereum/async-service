@@ -11,7 +11,7 @@ class TrioDAGServiceTest(DAGServiceTest):
     async def yield_execution(self, count):
         with trio.CancelScope(shield=True):
             for _ in range(count):
-                await trio.hazmat.checkpoint()
+                await trio.lowlevel.checkpoint()
 
     async def ready_cancel(self) -> None:
         for event in self._child_tasks_all_ready_events.values():

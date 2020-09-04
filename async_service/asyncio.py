@@ -284,7 +284,7 @@ class AsyncioManager(BaseManager):
     ) -> Optional[TaskWithChildrenAPI]:
         """
         Find the :class:`async_service.asyncio.FunctionTask` instance that corresponds to
-        the given :class:`trio.hazmat.Task` instance.
+        the given :class:`asyncio.Task` instance.
         """
         for task in FunctionTask.iterate_tasks(*self._root_tasks):
             if asyncio_task is task.asyncio_task:
