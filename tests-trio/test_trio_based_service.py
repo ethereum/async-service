@@ -490,7 +490,7 @@ async def test_trio_service_with_async_generator():
     @as_service
     async def ServiceTest(manager):
         async for _ in do_agen():  # noqa: F841
-            await trio.hazmat.checkpoint()
+            await trio.lowlevel.checkpoint()
             is_within_agen.set()
 
     async with background_trio_service(ServiceTest()) as manager:
@@ -538,7 +538,7 @@ async def test_trio_service_cancellation_with_running_daemon_task():
         async def _do_daemon(self):
             in_daemon.set()
             while self.manager.is_running:
-                await trio.hazmat.checkpoint()
+                await trio.lowlevel.checkpoint()
 
     async with background_trio_service(ServiceTest()) as manager:
         await in_daemon.wait()
@@ -579,7 +579,7 @@ async def test_trio_service_with_try_finally_cleanup_with_unshielded_await():
                 ready_cancel.set()
                 await self.manager.wait_finished()
             finally:
-                await trio.hazmat.checkpoint()
+                await trio.lowlevel.checkpoint()
                 self.cleanup_up = True
 
     service = TryFinallyService()
@@ -603,7 +603,7 @@ async def test_trio_service_with_try_finally_cleanup_with_shielded_await():
                 await self.manager.wait_finished()
             finally:
                 with trio.CancelScope(shield=True):
-                    await trio.hazmat.checkpoint()
+                    await trio.lowlevel.checkpoint()
                 self.cleanup_up = True
 
     service = TryFinallyService()

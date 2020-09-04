@@ -15,8 +15,8 @@ async def test_trio_manager_stats():
             self.manager.run_task(trio.sleep_forever)
 
             # 2 that complete
-            self.manager.run_task(trio.hazmat.checkpoint)
-            self.manager.run_task(trio.hazmat.checkpoint)
+            self.manager.run_task(trio.lowlevel.checkpoint)
+            self.manager.run_task(trio.lowlevel.checkpoint)
 
             # 1 that spawns some children
             self.manager.run_task(self.run_with_children, 4)
@@ -27,7 +27,7 @@ async def test_trio_manager_stats():
             ready.set()
 
         def run_external_root(self):
-            self.manager.run_task(trio.hazmat.checkpoint)
+            self.manager.run_task(trio.lowlevel.checkpoint)
 
     service = StatsTest()
     async with background_trio_service(service) as manager:
@@ -39,7 +39,7 @@ async def test_trio_manager_stats():
         # we need to yield to the event loop a few times to allow the various
         # tasks to schedule themselves and get running.
         for _ in range(50):
-            await trio.hazmat.checkpoint()
+            await trio.lowlevel.checkpoint()
 
         assert manager.stats.tasks.total_count == 10
         assert manager.stats.tasks.finished_count == 3
@@ -71,7 +71,7 @@ async def test_trio_manager_stats_does_not_count_main_run_method():
         # we need to yield to the event loop a few times to allow the various
         # tasks to schedule themselves and get running.
         for _ in range(10):
-            await trio.hazmat.checkpoint()
+            await trio.lowlevel.checkpoint()
 
         assert manager.stats.tasks.total_count == 1
         assert manager.stats.tasks.finished_count == 0

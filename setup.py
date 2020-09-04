@@ -16,7 +16,7 @@ extras_require = {
         "pytest-asyncio>=0.10.0,<0.11",
     ],
     'test-trio': [
-        "pytest-trio==0.5.2",
+        "pytest-trio>=0.6.0,<0.7.0",
     ],
     'lint': [
         "black==19.3b",
@@ -63,8 +63,8 @@ setup(
     include_package_data=True,
     install_requires=[
         "async-generator>=1.10,<2",
-        "trio>=0.13,<14",
-        "trio-typing>=0.3,<0.4",
+        "trio>=0.16,<0.17",
+        "trio-typing>=0.5,<0.6",
     ],
     python_requires='>=3.6, <4',
     extras_require=extras_require,

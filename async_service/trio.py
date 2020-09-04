@@ -26,7 +26,7 @@ from .typing import EXC_INFO, AsyncFn
 
 
 class FunctionTask(BaseFunctionTask):
-    _trio_task: Optional[trio.hazmat.Task] = None
+    _trio_task: Optional[trio.lowlevel.Task] = None
 
     def __init__(
         self,
@@ -54,13 +54,13 @@ class FunctionTask(BaseFunctionTask):
         return self._trio_task is not None
 
     @property
-    def trio_task(self) -> trio.hazmat.Task:
+    def trio_task(self) -> trio.lowlevel.Task:
         if self._trio_task is None:
             raise LifecycleError("Trio task not set yet")
         return self._trio_task
 
     @trio_task.setter
-    def trio_task(self, value: trio.hazmat.Task) -> None:
+    def trio_task(self, value: trio.lowlevel.Task) -> None:
         if self._trio_task is not None:
             raise LifecycleError(f"Task already set: {self._trio_task}")
         self._trio_task = value
@@ -69,7 +69,7 @@ class FunctionTask(BaseFunctionTask):
     # Core Task API
     #
     async def run(self) -> None:
-        self.trio_task = trio.hazmat.current_task()
+        self.trio_task = trio.lowlevel.current_task()
 
         try:
             with self._cancel_scope:
@@ -245,11 +245,11 @@ class TrioManager(BaseManager):
         await self._finished.wait()
 
     def _find_parent_task(
-        self, trio_task: trio.hazmat.Task
+        self, trio_task: trio.lowlevel.Task
     ) -> Optional[TaskWithChildrenAPI]:
         """
         Find the :class:`async_service.trio.FunctionTask` instance that corresponds to
-        the given :class:`trio.hazmat.Task` instance.
+        the given :class:`trio.lowlevel.Task` instance.
         """
         for task in FunctionTask.iterate_tasks(*self._root_tasks):
             # Any task that has not had its `trio_task` set can be safely
@@ -280,7 +280,7 @@ class TrioManager(BaseManager):
         task = FunctionTask(
             name=get_task_name(async_fn, name),
             daemon=daemon,
-            parent=self._find_parent_task(trio.hazmat.current_task()),
+            parent=self._find_parent_task(trio.lowlevel.current_task()),
             async_fn=async_fn,
             async_fn_args=args,
         )
@@ -293,7 +293,7 @@ class TrioManager(BaseManager):
         task = ChildServiceTask(
             name=get_task_name(service, name),
             daemon=daemon,
-            parent=self._find_parent_task(trio.hazmat.current_task()),
+            parent=self._find_parent_task(trio.lowlevel.current_task()),
             child_service=service,
         )
 
