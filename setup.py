@@ -63,7 +63,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "async-generator>=1.10,<2",
-        "trio>=0.16,<17",
+        "trio>=0.16,<0.17",
         "trio-typing>=0.5,<0.6",
     ],
     python_requires='>=3.6, <4',
