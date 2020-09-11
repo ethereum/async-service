@@ -8,6 +8,7 @@ from async_service import (
     DaemonTaskExit,
     LifecycleError,
     Service,
+    TooManyChildrenException,
     as_service,
     background_asyncio_service,
 )
@@ -561,3 +562,32 @@ async def test_asyncio_service_with_try_finally_cleanup_with_await():
         assert not service.cleanup_up
         manager.cancel()
     assert service.cleanup_up
+
+
+@pytest.mark.asyncio
+async def test_asyncio_service_with_too_many_children():
+    class ServiceTest(Service):
+        async def run(self):
+            await self.manager.wait_finished()
+
+        async def add_child(self):
+            event = asyncio.Event()
+            self.manager.run_task(self._notify_and_sleep, event)
+            await event.wait()
+
+        async def _notify_and_sleep(self, event):
+            event.set()
+            await asyncio.sleep(100)
+
+    service = ServiceTest()
+
+    # TODO same test but with service/task DAG
+    async with background_asyncio_service(service) as manager:
+        for child in range(1000):
+            await service.add_child()
+
+        assert manager.is_running
+        assert not manager.did_error
+
+        with pytest.raises(TooManyChildrenException):
+            await service.add_child()
