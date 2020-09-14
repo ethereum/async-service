@@ -1,3 +1,4 @@
+import os
 from typing import Any, TypeVar
 
 TItem = TypeVar("TItem")
@@ -30,3 +31,7 @@ def get_task_name(value: Any, explicit_name: str = None) -> str:
             return str(value.__name__)  # mypy doesn't know __name__ is a `str`
         except AttributeError:
             return repr(value)
+
+
+def is_verbose_logging_enabled() -> bool:
+    return bool(os.environ.get("ASYNC_SERVICE_VERBOSE_LOG", False))

@@ -37,7 +37,15 @@ class FunctionTask(BaseFunctionTask):
                 raise DaemonTaskExit(f"Daemon task {self} exited")
 
             while self.children:
-                await tuple(self.children)[0].wait_done()
+                # copy, because children can change size
+                active_children = tuple(self.children)
+                # Children will be removed from the list as they exit. Here,
+                #   we just want to check if the list is empty, but to wait until
+                #   at least one child has finished.
+                # There is some intuition that gather()-ing all the children
+                #   adds more overhead than the following approach of just waiting
+                #   for a single random-ish child to exit.
+                await active_children[0].wait_done()
         finally:
             if self.parent is not None:
                 self.parent.discard_child(self)
@@ -190,7 +198,8 @@ class AsyncioManager(BaseManager):
         while self._asyncio_tasks:
             done_tasks = tuple(task for task in self._asyncio_tasks if task.done())
             for task in done_tasks:
-                self.logger.debug("%s: waiting for %s to finish", self, task)
+                if self._verbose:
+                    self.logger.debug("%s: waiting for %s to finish", self, task)
                 try:
                     await task
                 except asyncio.CancelledError:

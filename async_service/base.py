@@ -17,6 +17,7 @@ from typing import (
 )
 import uuid
 
+from ._utils import is_verbose_logging_enabled
 from .abc import (
     InternalManagerAPI,
     ManagerAPI,
@@ -181,6 +182,7 @@ class BaseChildServiceTask(BaseTask):
 
 class BaseManager(InternalManagerAPI):
     logger = logging.getLogger("async_service.Manager")
+    _verbose = is_verbose_logging_enabled()
 
     _service: ServiceAPI
 
@@ -282,18 +284,23 @@ class BaseManager(InternalManagerAPI):
             return
 
         if task.parent is None:
-            self.logger.debug("%s: running root task %s", self, task)
+            if self._verbose:
+                self.logger.debug("%s: running root task %s", self, task)
             self._root_tasks.add(task)
         else:
+            if self._verbose:
+                self.logger.debug(
+                    "%s: %s running child task %s", self, task.parent, task
+                )
             task.parent.add_child(task)
-            self.logger.debug("%s: %s running child task %s", self, task.parent, task)
 
         self._total_task_count += 1
 
         self._schedule_task(task)
 
     async def _run_and_manage_task(self, task: TaskAPI) -> None:
-        self.logger.debug("%s: task %s running", self, task)
+        if self._verbose:
+            self.logger.debug("%s: task %s running", self, task)
 
         try:
             try:
@@ -321,7 +328,7 @@ class BaseManager(InternalManagerAPI):
             self.logger.debug("%s: task %s raised CancelledError.", self, task)
             raise
         except Exception as err:
-            self.logger.debug(
+            self.logger.error(
                 "%s: task %s exited with error: %s",
                 self,
                 task,
@@ -334,6 +341,7 @@ class BaseManager(InternalManagerAPI):
         else:
             if task.parent is None:
                 self._root_tasks.remove(task)
-            self.logger.debug("%s: task %s exited cleanly.", self, task)
+            if self._verbose:
+                self.logger.debug("%s: task %s exited cleanly.", self, task)
         finally:
             self._done_task_count += 1
