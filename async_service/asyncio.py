@@ -307,10 +307,15 @@ class AsyncioManager(BaseManager):
     def _schedule_task(self, task: TaskAPI) -> None:
         # No clean way to inform `mypy` without a `cast` that
         # `task.asyncio_task` is an allowed property
-        task.asyncio_task = asyncio.ensure_future(  # type: ignore
+        asyncio_task = asyncio.ensure_future(
             self._run_and_manage_task(task), loop=self._loop
         )
-        self._asyncio_tasks.add(task.asyncio_task)  # type: ignore
+        # Name the task, to make it easier to identify which task is holding
+        #   onto the event loop for too long.
+        if sys.version_info >= (3, 8):
+            asyncio_task.set_name(task.name)
+        self._asyncio_tasks.add(asyncio_task)
+        task.asyncio_task = asyncio_task  # type: ignore
 
     def _get_current_task(self) -> "asyncio.Future[Any]":
         current_asyncio_task = get_current_task()
