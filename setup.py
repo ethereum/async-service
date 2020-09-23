@@ -8,9 +8,9 @@ from setuptools import (
 extras_require = {
     'test': [
         "hypothesis==4.44.4",
-        "pytest==5.3.0",
+        "pytest==5.4.1",
         "pytest-xdist",
-        "tox>=2.9.1,<3",
+        "tox==3.14.6",
     ],
     'test-asyncio': [
         "pytest-asyncio>=0.10.0,<0.11",
@@ -28,6 +28,7 @@ extras_require = {
     'doc': [
         "Sphinx>=1.6.5,<2",
         "sphinx_rtd_theme>=0.1.9",
+        "towncrier>=19.2.0, <20",
     ],
     'dev': [
         "bumpversion>=0.5.3,<1",
