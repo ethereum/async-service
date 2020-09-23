@@ -1,5 +1,6 @@
 from abc import abstractmethod
 import asyncio
+from collections import Counter
 import logging
 import sys
 from typing import (
@@ -25,9 +26,11 @@ from .abc import (
     TaskAPI,
     TaskWithChildrenAPI,
 )
-from .exceptions import DaemonTaskExit, LifecycleError
+from .exceptions import DaemonTaskExit, LifecycleError, TooManyChildrenException
 from .stats import Stats, TaskStats
 from .typing import EXC_INFO, AsyncFn
+
+MAX_CHILDREN_TASKS = 1000
 
 
 class Service(ServiceAPI):
@@ -283,20 +286,34 @@ class BaseManager(InternalManagerAPI):
             )
             return
 
-        if task.parent is None:
+        self._add_child_task(task.parent, task)
+        self._total_task_count += 1
+
+        self._schedule_task(task)
+
+    def _add_child_task(
+        self, parent: Optional[TaskWithChildrenAPI], task: TaskAPI
+    ) -> None:
+        if parent is None:
+            all_children = self._root_tasks
+        else:
+            all_children = parent.children
+
+        if len(all_children) > MAX_CHILDREN_TASKS:
+            task_counter = Counter(map(str, all_children))
+            raise TooManyChildrenException(
+                f"Tried to add more than {MAX_CHILDREN_TASKS} child tasks."
+                f" Most common tasks: {task_counter.most_common(10)}"
+            )
+
+        if parent is None:
             if self._verbose:
                 self.logger.debug("%s: running root task %s", self, task)
             self._root_tasks.add(task)
         else:
             if self._verbose:
-                self.logger.debug(
-                    "%s: %s running child task %s", self, task.parent, task
-                )
-            task.parent.add_child(task)
-
-        self._total_task_count += 1
-
-        self._schedule_task(task)
+                self.logger.debug("%s: %s running child task %s", self, parent, task)
+            parent.add_child(task)
 
     async def _run_and_manage_task(self, task: TaskAPI) -> None:
         if self._verbose:
@@ -313,10 +330,7 @@ class BaseManager(InternalManagerAPI):
                         new_parent = task.parent
                         for child in task.children:
                             child.parent = new_parent
-                            if new_parent is None:
-                                self._root_tasks.add(child)
-                            else:
-                                new_parent.add_child(child)
+                            self._add_child_task(new_parent, child)
                             self.logger.debug(
                                 "Daemon %s left child task (%s) behind, reassigning it to %s",
                                 task,
