@@ -1,0 +1,2 @@
+Turn off verbose logging about task lifecycle by default. To re-enable it, set the environment
+variable ``ASYNC_SERVICE_VERBOSE_LOG=1``.
