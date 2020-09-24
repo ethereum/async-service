@@ -1,1 +1,0 @@
-Pull in updates from project template, for latest release notes, Makefile, etc.

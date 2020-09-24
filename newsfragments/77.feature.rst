@@ -1,2 +1,0 @@
-Raise an exception when more than 1000 child tasks are concurrently running. It slows down the event
-loop too much.

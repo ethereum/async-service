@@ -1,2 +1,0 @@
-In py3.8, annotate asyncio tasks with a name, so that asyncio logs show more than
-_run_and_manage_task() when there's an issue like a coro that takes too long.
