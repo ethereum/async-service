@@ -326,18 +326,19 @@ class BaseManager(InternalManagerAPI):
                 if self.is_cancelled:
                     pass
                 else:
-                    if isinstance(task, TaskWithChildrenAPI):
-                        new_parent = task.parent
-                        for child in task.children:
-                            child.parent = new_parent
-                            self._add_child_task(new_parent, child)
-                            self.logger.debug(
-                                "Daemon %s left child task (%s) behind, reassigning it to %s",
-                                task,
-                                child,
-                                new_parent or "root",
-                            )
                     raise
+            finally:
+                if isinstance(task, TaskWithChildrenAPI):
+                    new_parent = task.parent
+                    for child in task.children:
+                        child.parent = new_parent
+                        self._add_child_task(new_parent, child)
+                        self.logger.debug(
+                            "%s left a child task (%s) behind, reassigning it to %s",
+                            task,
+                            child,
+                            new_parent or "root",
+                        )
         except asyncio.CancelledError:
             self.logger.debug("%s: task %s raised CancelledError.", self, task)
             raise
