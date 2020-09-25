@@ -198,22 +198,65 @@ async def test_error_in_service_run():
         await AsyncioManager.run_service(ServiceTest())
 
 
+async def sleep_and_fail():
+    await asyncio.sleep(1)
+    raise AssertionError("This should not happen as the task should be cancelled")
+
+
 @pytest.mark.asyncio
 async def test_daemon_task_finishes_leaving_children():
     class ServiceTest(Service):
-        async def sleep_and_fail(self):
-            await asyncio.sleep(1)
-            raise AssertionError(
-                "This should not happen as the task should be cancelled"
-            )
-
         async def buggy_daemon(self):
-            self.manager.run_task(self.sleep_and_fail)
+            self.manager.run_task(sleep_and_fail)
 
         async def run(self):
             self.manager.run_daemon_task(self.buggy_daemon)
 
     with pytest.raises(DaemonTaskExit):
+        await AsyncioManager.run_service(ServiceTest())
+
+
+@pytest.mark.asyncio
+async def test_daemon_task_cancels_service_leaving_children():
+    class ServiceTest(Service):
+        async def buggy_daemon(self):
+            self.manager.run_task(sleep_and_fail)
+            await asyncio.sleep(0)
+            self.manager.cancel()
+
+        async def run(self):
+            self.manager.run_daemon_task(self.buggy_daemon)
+
+    await AsyncioManager.run_service(ServiceTest())
+
+
+@pytest.mark.asyncio
+async def test_daemon_task_raises_exception_leaving_children():
+    class ServiceTest(Service):
+        async def buggy_daemon(self):
+            self.manager.run_task(sleep_and_fail)
+            await asyncio.sleep(0)
+            raise Exception("Buggy daemon")
+
+        async def run(self):
+            self.manager.run_daemon_task(self.buggy_daemon)
+
+    with pytest.raises(Exception, match="Buggy daemon"):
+        await AsyncioManager.run_service(ServiceTest())
+
+
+@pytest.mark.asyncio
+async def test_task_raises_exception_leaving_children():
+    class ServiceTest(Service):
+        async def buggy_task(self):
+            self.manager.run_task(sleep_and_fail)
+            await asyncio.sleep(0)
+            raise Exception("Buggy task")
+
+        async def run(self):
+            self.manager.run_task(self.buggy_task)
+
+    with pytest.raises(Exception, match="Buggy task"):
         await AsyncioManager.run_service(ServiceTest())
 
 
@@ -583,7 +626,7 @@ async def test_asyncio_service_with_too_many_children():
 
     # TODO same test but with service/task DAG
     async with background_asyncio_service(service) as manager:
-        for child in range(1000):
+        for _child in range(1000):
             await service.add_child()
 
         assert manager.is_running

@@ -175,7 +175,9 @@ class AsyncioManager(BaseManager):
 
         for asyncio_task in tuple(self._asyncio_tasks):
             if not asyncio_task.done():
-                raise LifecycleError("Should have already been completed")
+                raise LifecycleError(
+                    f"Task {asyncio_task} should have already completed"
+                )
 
             try:
                 await asyncio_task
@@ -224,26 +226,27 @@ class AsyncioManager(BaseManager):
         elif self.is_started:
             raise LifecycleError("Cannot run a service which is already started.")
 
-        async with self._run_lock:
-            handle_cancelled_task = asyncio.ensure_future(
-                self._handle_cancelled(), loop=self._loop
-            )
+        try:
+            async with self._run_lock:
+                handle_cancelled_task = asyncio.ensure_future(
+                    self._handle_cancelled(), loop=self._loop
+                )
 
-            async with cleanup_tasks(handle_cancelled_task):
-                self._started.set()
+                async with cleanup_tasks(handle_cancelled_task):
+                    self._started.set()
 
-                self.run_task(self._service.run)
+                    self.run_task(self._service.run)
 
-                # This is hack to get the task stats correct.  We don't want to
-                # count the `Service.run` method as a task.  This is still
-                # imperfect as it will still count as a completed task when it
-                # finishes.
-                self._total_task_count = 0
+                    # This is hack to get the task stats correct.  We don't want to
+                    # count the `Service.run` method as a task.  This is still
+                    # imperfect as it will still count as a completed task when it
+                    # finishes.
+                    self._total_task_count = 0
 
-                await self._wait_all_tasks_done()
-
-        self._finished.set()
-        self.logger.debug("%s: finished", self)
+                    await self._wait_all_tasks_done()
+        finally:
+            self._finished.set()
+            self.logger.debug("%s: finished", self)
 
         # Above we rely on run_task() and handle_cancelled() to run the
         # service/tasks and swallow/collect exceptions so that they can be
