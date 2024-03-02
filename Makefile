@@ -37,7 +37,7 @@ build-docs:
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(MAKE) -C docs doctest
-	
+
 build-docs-ci:
 	$(MAKE) -C docs latexpdf
 	$(MAKE) -C docs epub

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 from setuptools import (
     find_packages,
     setup,
@@ -25,16 +24,20 @@ extras_require = {
         "pytest-xdist>=2.4.0",
         "hypothesis==4.44.4",
     ],
-    'test-asyncio': [
+    "test-asyncio": [
         "pytest-asyncio>=0.10.0",
     ],
-    'test-trio': [
+    "test-trio": [
         "pytest-trio>=0.6.0",
     ],
 }
 
 extras_require["dev"] = (
-    extras_require["dev"] + extras_require["docs"] + extras_require["test"] + extras_require["test-asyncio"] + extras_require["test-trio"]
+    extras_require["dev"]
+    + extras_require["docs"]
+    + extras_require["test"]
+    + extras_require["test-asyncio"]
+    + extras_require["test-trio"]
 )
 
 
@@ -43,15 +46,15 @@ with open("./README.md") as readme:
 
 
 setup(
-    name='async-service',
+    name="async-service",
     # *IMPORTANT*: Don't manually change the version here. Use `make bump`, as described in readme
-    version='0.1.0-alpha.11',
+    version="0.1.0-alpha.11",
     description="""async-service: Lifecycle management for async applications""",
     long_description=long_description,
-    long_description_content_type='text/markdown',
-    author='The Ethereum Foundation',
-    author_email='snakecharmers@ethereum.org',
-    url='https://github.com/ethereum/async-service',
+    long_description_content_type="text/markdown",
+    author="The Ethereum Foundation",
+    author_email="snakecharmers@ethereum.org",
+    url="https://github.com/ethereum/async-service",
     include_package_data=True,
     install_requires=[
         "async-generator>=1.10",

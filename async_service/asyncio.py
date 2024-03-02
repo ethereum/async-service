@@ -13,15 +13,37 @@ from typing import (
     cast,
 )
 
-from async_generator import asynccontextmanager
-from trio import MultiError
+from async_generator import (
+    asynccontextmanager,
+)
+from trio import (
+    MultiError,
+)
 
-from ._utils import get_task_name
-from .abc import ManagerAPI, ServiceAPI, TaskAPI, TaskWithChildrenAPI
-from .asyncio_compat import get_current_task
-from .base import BaseChildServiceTask, BaseFunctionTask, BaseManager
-from .exceptions import DaemonTaskExit, LifecycleError
-from .typing import EXC_INFO
+from ._utils import (
+    get_task_name,
+)
+from .abc import (
+    ManagerAPI,
+    ServiceAPI,
+    TaskAPI,
+    TaskWithChildrenAPI,
+)
+from .asyncio_compat import (
+    get_current_task,
+)
+from .base import (
+    BaseChildServiceTask,
+    BaseFunctionTask,
+    BaseManager,
+)
+from .exceptions import (
+    DaemonTaskExit,
+    LifecycleError,
+)
+from .typing import (
+    EXC_INFO,
+)
 
 
 class FunctionTask(BaseFunctionTask):
@@ -101,7 +123,7 @@ class AsyncioManager(BaseManager):
     _asyncio_tasks: Set["asyncio.Future[Any]"]
 
     def __init__(
-        self, service: ServiceAPI, loop: asyncio.AbstractEventLoop = None
+        self, service: ServiceAPI, loop: Optional[asyncio.AbstractEventLoop] = None
     ) -> None:
         super().__init__(service)
 
@@ -152,7 +174,7 @@ class AsyncioManager(BaseManager):
         # scope, **or** if it was scheduled by an external API call it will be
         # cancelled as part of the global task nursery's cancellation.
         for task in tuple(self._root_tasks):
-            msg = "%s: triggering cancellation of root task %s" % (self, task.name)
+            msg = f"{self}: triggering cancellation of root task {task.name}"
             if isinstance(task, TaskWithChildrenAPI):
                 msg += " and all its children (%s)" % (
                     [child.name for child in task.children]
@@ -161,8 +183,9 @@ class AsyncioManager(BaseManager):
             try:
                 await task.cancel()
             except Exception as e:
-                # We log this because it may prevent us from reaching the end of run(), where
-                # self._errors would be raised, and in that case we'd never see this error.
+                # We log this because it may prevent us from reaching the end of run(),
+                # where self._errors would be raised, and in that case we'd never see
+                # this error.
                 self.logger.debug(
                     "Error cancelling task %s: %s. %s may fail to terminate",
                     task.name,
@@ -186,7 +209,7 @@ class AsyncioManager(BaseManager):
 
     @classmethod
     async def run_service(
-        cls, service: ServiceAPI, loop: asyncio.AbstractEventLoop = None
+        cls, service: ServiceAPI, loop: Optional[asyncio.AbstractEventLoop] = None
     ) -> None:
         manager = cls(service, loop=loop)
         await manager.run()
@@ -221,7 +244,8 @@ class AsyncioManager(BaseManager):
     async def run(self) -> None:
         if self._run_lock.locked():
             raise LifecycleError(
-                "Cannot run a service with the run lock already engaged.  Already started?"
+                "Cannot run a service with the run lock already engaged. "
+                "Already started?"
             )
         elif self.is_started:
             raise LifecycleError("Cannot run a service which is already started.")
@@ -295,8 +319,8 @@ class AsyncioManager(BaseManager):
         self, asyncio_task: "asyncio.Future[Any]"
     ) -> Optional[TaskWithChildrenAPI]:
         """
-        Find the :class:`async_service.asyncio.FunctionTask` instance that corresponds to
-        the given :class:`asyncio.Task` instance.
+        Find the :class:`async_service.asyncio.FunctionTask` instance that corresponds
+        to the given :class:`asyncio.Task` instance.
         """
         for task in FunctionTask.iterate_tasks(*self._root_tasks):
             if asyncio_task is task.asyncio_task:
@@ -315,8 +339,7 @@ class AsyncioManager(BaseManager):
         )
         # Name the task, to make it easier to identify which task is holding
         #   onto the event loop for too long.
-        if sys.version_info >= (3, 8):
-            asyncio_task.set_name(task.name)
+        asyncio_task.set_name(task.name)
         self._asyncio_tasks.add(asyncio_task)
         task.asyncio_task = asyncio_task  # type: ignore
 
@@ -331,7 +354,7 @@ class AsyncioManager(BaseManager):
         async_fn: Callable[..., Awaitable[Any]],
         *args: Any,
         daemon: bool = False,
-        name: str = None,
+        name: Optional[str] = None,
     ) -> None:
         current_asyncio_task = self._get_current_task()
 
@@ -345,7 +368,7 @@ class AsyncioManager(BaseManager):
         self._common_run_task(task)
 
     def run_child_service(
-        self, service: ServiceAPI, daemon: bool = False, name: str = None
+        self, service: ServiceAPI, daemon: bool = False, name: Optional[str] = None
     ) -> ManagerAPI:
         current_asyncio_task = self._get_current_task()
 
@@ -361,7 +384,7 @@ class AsyncioManager(BaseManager):
         return task.child_manager
 
 
-@asynccontextmanager
+@asynccontextmanager  # type: ignore
 async def cleanup_tasks(*tasks: "asyncio.Future[Any]") -> AsyncIterator[None]:
     """
     Context manager that ensures that all tasks are properly cancelled and awaited.
@@ -423,7 +446,8 @@ def external_api(func: TFunc) -> TFunc:
                 return await func_task
             elif service_finished_task.done():
                 raise LifecycleError(
-                    f"Cannot access external API {func}.  Service {self} is not running: "
+                    f"Cannot access external API {func}.  Service {self} is not "
+                    "running: "
                 )
             else:
                 raise Exception("Code path should be unreachable")
@@ -431,9 +455,9 @@ def external_api(func: TFunc) -> TFunc:
     return cast(TFunc, inner)
 
 
-@asynccontextmanager
+@asynccontextmanager  # type: ignore
 async def background_asyncio_service(
-    service: ServiceAPI, loop: asyncio.AbstractEventLoop = None
+    service: ServiceAPI, loop: Optional[asyncio.AbstractEventLoop] = None
 ) -> AsyncIterator[ManagerAPI]:
     """
     Run a service in the background.

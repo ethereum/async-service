@@ -1,12 +1,23 @@
-from abc import abstractmethod
+from abc import (
+    abstractmethod,
+)
 import asyncio
 import logging
 import random
-from typing import Any, Dict, Tuple, Type, Union
+from typing import (
+    Any,
+    Dict,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import trio
 
-from async_service import Service
+from async_service import (
+    Service,
+)
 
 DAG = Dict[int, Tuple[int, ...]]
 
@@ -42,7 +53,7 @@ class Resource:
 
 class DAGServiceTest(Service):
     """
-    This service is for testing whether the task DAG gets shutdown in the
+    Service for testing whether the task DAG gets shutdown in the
     correct order.
     """
 
@@ -60,7 +71,7 @@ class DAGServiceTest(Service):
     async def ready_cancel(self) -> None:
         ...
 
-    def __init__(self, dag: DAG = None):
+    def __init__(self, dag: Optional[DAG] = None):
         if dag is None:
             self._dag = DEFAULT_DAG
         else:
@@ -142,7 +153,8 @@ class DAGServiceTest(Service):
             for task_id, resource in self._task_resources.items():
                 if resource.is_active is not False:
                     raise AssertionError(
-                        f"Resource for task-{task_id} was not `False`: {resource.is_active!r}"
+                        f"Resource for task-{task_id} was not `False`: "
+                        f"{resource.is_active!r}"
                     )
             for task_id, resource in self._task_resources.items():
                 if resource.was_checked is not True:

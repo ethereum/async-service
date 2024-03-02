@@ -1,10 +1,22 @@
-from abc import ABC, abstractmethod
-from typing import Any, Hashable, Optional, Set
+from abc import (
+    ABC,
+    abstractmethod,
+)
+from typing import (
+    Any,
+    Hashable,
+    Optional,
+    Set,
+)
 
 import trio_typing
 
-from .stats import Stats
-from .typing import AsyncFn
+from .stats import (
+    Stats,
+)
+from .typing import (
+    AsyncFn,
+)
 
 
 class TaskAPI(Hashable):
@@ -194,10 +206,14 @@ class InternalManagerAPI(ManagerAPI):
     functionality as it is only designed to be used internally.
     """
 
-    @trio_typing.takes_callable_and_args
+    @trio_typing.takes_callable_and_args  # type: ignore
     @abstractmethod
     def run_task(
-        self, async_fn: AsyncFn, *args: Any, daemon: bool = False, name: str = None
+        self,
+        async_fn: AsyncFn,
+        *args: Any,
+        daemon: bool = False,
+        name: Optional[str] = None
     ) -> None:
         """
         Run a task in the background.  If the function throws an exception it
@@ -208,9 +224,11 @@ class InternalManagerAPI(ManagerAPI):
         """
         ...
 
-    @trio_typing.takes_callable_and_args
+    @trio_typing.takes_callable_and_args  # type: ignore
     @abstractmethod
-    def run_daemon_task(self, async_fn: AsyncFn, *args: Any, name: str = None) -> None:
+    def run_daemon_task(
+        self, async_fn: AsyncFn, *args: Any, name: Optional[str] = None
+    ) -> None:
         """
         Run a daemon task in the background.
 
@@ -220,7 +238,7 @@ class InternalManagerAPI(ManagerAPI):
 
     @abstractmethod
     def run_child_service(
-        self, service: ServiceAPI, daemon: bool = False, name: str = None
+        self, service: ServiceAPI, daemon: bool = False, name: Optional[str] = None
     ) -> "ManagerAPI":
         """
         Run a service in the background.  If the function throws an exception it
@@ -233,7 +251,7 @@ class InternalManagerAPI(ManagerAPI):
 
     @abstractmethod
     def run_daemon_child_service(
-        self, service: ServiceAPI, name: str = None
+        self, service: ServiceAPI, name: Optional[str] = None
     ) -> "ManagerAPI":
         """
         Run a daemon service in the background.

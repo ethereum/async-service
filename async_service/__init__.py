@@ -1,10 +1,16 @@
-from .abc import ManagerAPI, ServiceAPI  # noqa: F401
+from .abc import (  # noqa: F401
+    ManagerAPI,
+    ServiceAPI,
+)
 from .asyncio import (  # noqa: F401
     AsyncioManager,
     background_asyncio_service,
     external_api as external_asyncio_api,
 )
-from .base import Service, as_service  # noqa: F401
+from .base import (  # noqa: F401
+    Service,
+    as_service,
+)
 from .exceptions import (  # noqa: F401
     DaemonTaskExit,
     LifecycleError,

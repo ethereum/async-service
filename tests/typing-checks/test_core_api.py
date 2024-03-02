@@ -1,5 +1,9 @@
-from async_service import Service
-from async_service.asyncio import external_api
+from async_service import (
+    Service,
+)
+from async_service.asyncio import (
+    external_api,
+)
 
 
 class MyService(Service):

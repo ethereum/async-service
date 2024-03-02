@@ -2,7 +2,10 @@ import asyncio
 
 import pytest
 
-from async_service import Service, background_asyncio_service
+from async_service import (
+    Service,
+    background_asyncio_service,
+)
 
 
 @pytest.mark.asyncio

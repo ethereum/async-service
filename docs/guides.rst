@@ -331,7 +331,7 @@ cancellations.
 
 .. code-block:: python
 
-    
+
     from async_service import Service
 
     class CleanupService(Service):
@@ -348,7 +348,7 @@ It is relatively trivial to implement a reusable pattern for doing cleanup.
 
 .. code-block:: python
 
-    
+
     from async_service import Service
 
     class CleanupService(Service):
@@ -365,7 +365,7 @@ It is relatively trivial to implement a reusable pattern for doing cleanup.
 
         async def on_success(self) -> None:
             pass
-        
+
         async def on_error(self) -> None:
             pass
 

@@ -1,7 +1,9 @@
 import asyncio
 
 import pytest
-from trio import MultiError
+from trio import (
+    MultiError,
+)
 
 from async_service import (
     AsyncioManager,
@@ -262,8 +264,9 @@ async def test_task_raises_exception_leaving_children():
 
 @pytest.mark.asyncio
 async def test_multierror_in_run():
-    # This test should cause ServiceTest to raise a trio.MultiError containing two exceptions --
-    # one raised inside its run() method and another raised by the daemon task exiting early.
+    # This test should cause ServiceTest to raise a trio.MultiError containing two
+    # exceptions -- one raised inside its run() method and another raised by the daemon
+    # task exiting early.
     trigger_error = asyncio.Event()
 
     class ServiceTest(Service):
@@ -407,7 +410,6 @@ async def test_asyncio_service_manager_run_task_reraises_exceptions():
         async with background_asyncio_service(RunTaskService()) as manager:
             task_event.set()
             await manager.wait_finished()
-            pass
 
 
 @pytest.mark.asyncio

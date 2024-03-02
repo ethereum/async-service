@@ -1,8 +1,12 @@
 import pytest
 import trio
 
-from async_service import background_trio_service
-from async_service.tools._dag_test import DAGServiceTest
+from async_service import (
+    background_trio_service,
+)
+from async_service.tools._dag_test import (
+    DAGServiceTest,
+)
 
 
 class TrioDAGServiceTest(DAGServiceTest):
