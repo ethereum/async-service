@@ -1,53 +1,44 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 from setuptools import (
-    setup,
     find_packages,
+    setup,
 )
 
 extras_require = {
-    'test': [
+    "dev": [
+        "build>=0.9.0",
+        "bumpversion>=0.5.3",
+        "ipython",
+        "pre-commit>=3.4.0",
+        "tox>=4.0.0",
+        "twine",
+        "wheel",
+    ],
+    "docs": [
+        "sphinx>=6.0.0",
+        "sphinx_rtd_theme>=1.0.0",
+        "towncrier>=21,<22",
+    ],
+    "test": [
+        "pytest>=7.0.0",
+        "pytest-xdist>=2.4.0",
         "hypothesis==4.44.4",
-        "pytest==5.4.1",
-        "pytest-xdist",
-        "tox==3.14.6",
     ],
     'test-asyncio': [
-        "pytest-asyncio>=0.10.0,<0.11",
+        "pytest-asyncio>=0.10.0",
     ],
     'test-trio': [
-        "pytest-trio>=0.6.0,<0.7.0",
-    ],
-    'lint': [
-        "black==19.3b",
-        "flake8==3.7.9",
-        "isort>=4.2.15,<5",
-        "mypy==0.782",
-        "pydocstyle>=3.0.0,<4",
-    ],
-    'doc': [
-        "Sphinx>=1.6.5,<2",
-        "sphinx_rtd_theme>=0.1.9",
-        "towncrier>=19.2.0, <20",
-    ],
-    'dev': [
-        "bumpversion>=0.5.3,<1",
-        "pytest-watch>=4.1.0,<5",
-        "wheel",
-        "twine",
-        "ipython",
+        "pytest-trio>=0.6.0",
     ],
 }
 
-extras_require['dev'] = (
-    extras_require['dev'] +  # noqa: W504
-    extras_require['test'] +  # noqa: W504
-    extras_require['lint'] +  # noqa: W504
-    extras_require['doc']
+extras_require["dev"] = (
+    extras_require["dev"] + extras_require["docs"] + extras_require["test"] + extras_require["test-asyncio"] + extras_require["test-trio"]
 )
 
 
-with open('./README.md') as readme:
+with open("./README.md") as readme:
     long_description = readme.read()
 
 
@@ -63,27 +54,28 @@ setup(
     url='https://github.com/ethereum/async-service',
     include_package_data=True,
     install_requires=[
-        "async-generator>=1.10,<2",
-        "trio>=0.16,<0.17",
-        "trio-typing>=0.5,<0.6",
+        "async-generator>=1.10",
+        "trio>=0.16",
+        "trio-typing>=0.5",
     ],
-    python_requires='>=3.6, <4',
+    python_requires=">=3.8, <4",
     extras_require=extras_require,
-    py_modules=['async_service'],
+    py_modules=["async_service"],
     license="MIT",
     zip_safe=False,
-    keywords='ethereum',
+    keywords="ethereum",
     packages=find_packages(exclude=["tests", "tests.*"]),
-    package_data={'async_service': ['py.typed']},
+    package_data={"async_service": ["py.typed"]},
     classifiers=[
-        'Development Status :: 3 - Alpha',
-        'Intended Audience :: Developers',
-        'License :: OSI Approved :: MIT License',
-        'Natural Language :: English',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: Implementation :: PyPy',
+        "Development Status :: 3 - Alpha",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: MIT License",
+        "Natural Language :: English",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
     ],
 )
