@@ -1,4 +1,5 @@
 import pytest
+
 import trio
 
 from async_service import (
@@ -219,10 +220,11 @@ async def test_trio_service_lifecycle_run_and_daemon_task_exit():
 
 
 @pytest.mark.trio
-async def test_multierror_in_run():
+async def test_exceptiongroup_in_run():
     # This test should cause TrioManager.run() to explicitly raise a trio.MultiError
     # containing two exceptions -- one raised inside its run() method and another
     # raised by the daemon task exiting early.
+    # TODO fix error type in comment
     trigger_error = trio.Event()
 
     class ServiceTest(Service):
@@ -238,7 +240,7 @@ async def test_multierror_in_run():
             await trigger_error.wait()
             raise ValueError("Exception inside error_fn")
 
-    with pytest.raises(trio.MultiError) as exc_info:
+    with pytest.raises(ExceptionGroup) as exc_info:
         await TrioManager.run_service(ServiceTest())
 
     exc = exc_info.value

@@ -16,9 +16,6 @@ from typing import (
 from async_generator import (
     asynccontextmanager,
 )
-from trio import (
-    MultiError,
-)
 
 from ._utils import (
     get_task_name,
@@ -152,7 +149,7 @@ class AsyncioManager(BaseManager):
             await self._real_handle_cancelled()
         except asyncio.CancelledError:
             raise
-        except BaseException:
+        except Exception:
             self.logger.exception(
                 "%s: unexpected error when cancelling tasks, service may not terminate",
                 self,
@@ -276,11 +273,12 @@ class AsyncioManager(BaseManager):
         # service/tasks and swallow/collect exceptions so that they can be
         # reported all together here.
         if self.did_error:
-            raise MultiError(
+            raise ExceptionGroup(
+                "a group of exceptions occurred while running the service",
                 tuple(
                     exc_value.with_traceback(exc_tb)
                     for _, exc_value, exc_tb in self._errors
-                )
+                ),
             )
 
     #
@@ -479,9 +477,10 @@ async def background_asyncio_service(
     finally:
         if manager.did_error:
             # TODO: better place for this.
-            raise MultiError(
+            raise ExceptionGroup(
+                "a group of exceptions occurred while running background_asyncio_service",  # noqa: E501
                 tuple(
                     exc_value.with_traceback(exc_tb)
                     for _, exc_value, exc_tb in manager._errors
-                )
+                ),
             )

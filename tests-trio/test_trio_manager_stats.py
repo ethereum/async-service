@@ -1,4 +1,5 @@
 import pytest
+
 import trio
 
 from async_service import (

@@ -9,6 +9,6 @@ from typing import (
     Type,
 )
 
-EXC_INFO = Tuple[Type[BaseException], BaseException, TracebackType]
+EXC_INFO = Tuple[Type[Exception], Exception, TracebackType]
 
 AsyncFn = Callable[..., Awaitable[Any]]

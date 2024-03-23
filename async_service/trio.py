@@ -221,12 +221,14 @@ class TrioManager(BaseManager):
 
         # This is outside of the finally block above because we don't want to suppress
         # trio.Cancelled or trio.MultiError exceptions coming directly from trio.
+        # TODO update exception notes
         if self.did_error:
-            raise trio.MultiError(
+            raise ExceptionGroup(
+                "a group of errors occurred",
                 tuple(
                     exc_value.with_traceback(exc_tb)
                     for _, exc_value, exc_tb in self._errors
-                )
+                ),
             )
 
     #
@@ -324,7 +326,7 @@ class TrioManager(BaseManager):
 TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, Any]])
 
 
-_ChannelPayload = Tuple[Optional[Any], Optional[BaseException]]
+_ChannelPayload = Tuple[Optional[Any], Optional[Exception]]
 
 
 async def _wait_finished(
