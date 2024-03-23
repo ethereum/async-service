@@ -1,9 +1,12 @@
 import asyncio
-
 import pytest
 
-from async_service import background_asyncio_service
-from async_service.tools._dag_test import DAGServiceTest
+from async_service import (
+    background_asyncio_service,
+)
+from async_service.tools._dag_test import (
+    DAGServiceTest,
+)
 
 
 class AsyncioDAGServiceTest(DAGServiceTest):

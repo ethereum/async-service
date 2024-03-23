@@ -1,8 +1,15 @@
 import pytest
+
 import trio
 
-from async_service import LifecycleError, Service, background_trio_service
-from async_service.trio import external_api
+from async_service import (
+    LifecycleError,
+    Service,
+    background_trio_service,
+)
+from async_service.trio import (
+    external_api,
+)
 
 
 class ExternalAPIService(Service):

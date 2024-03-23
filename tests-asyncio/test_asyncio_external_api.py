@@ -1,9 +1,14 @@
 import asyncio
-
 import pytest
 
-from async_service import LifecycleError, Service, background_asyncio_service
-from async_service.asyncio import external_api
+from async_service import (
+    LifecycleError,
+    Service,
+    background_asyncio_service,
+)
+from async_service.asyncio import (
+    external_api,
+)
 
 
 class ExternalAPIService(Service):

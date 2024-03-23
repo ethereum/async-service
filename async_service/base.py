@@ -1,6 +1,10 @@
-from abc import abstractmethod
+from abc import (
+    abstractmethod,
+)
 import asyncio
-from collections import Counter
+from collections import (
+    Counter,
+)
 import logging
 import sys
 from typing import (
@@ -18,7 +22,9 @@ from typing import (
 )
 import uuid
 
-from ._utils import is_verbose_logging_enabled
+from ._utils import (
+    is_verbose_logging_enabled,
+)
 from .abc import (
     InternalManagerAPI,
     ManagerAPI,
@@ -26,9 +32,19 @@ from .abc import (
     TaskAPI,
     TaskWithChildrenAPI,
 )
-from .exceptions import DaemonTaskExit, LifecycleError, TooManyChildrenException
-from .stats import Stats, TaskStats
-from .typing import EXC_INFO, AsyncFn
+from .exceptions import (
+    DaemonTaskExit,
+    LifecycleError,
+    TooManyChildrenException,
+)
+from .stats import (
+    Stats,
+    TaskStats,
+)
+from .typing import (
+    EXC_INFO,
+    AsyncFn,
+)
 
 MAX_CHILDREN_TASKS = 1000
 
@@ -135,8 +151,7 @@ class BaseFunctionTask(BaseTaskWithChildren):
             yield from cls.iterate_tasks(
                 *(
                     child_task
-                    # mypy cannot infer the type of `task`.
-                    for child_task in task.children  # type: ignore
+                    for child_task in task.children
                     if isinstance(child_task, cls)
                 )
             )
@@ -243,13 +258,15 @@ class BaseManager(InternalManagerAPI):
     # Wait API
     #
     def run_daemon_task(
-        self, async_fn: Callable[..., Awaitable[Any]], *args: Any, name: str = None
+        self,
+        async_fn: Callable[..., Awaitable[Any]],
+        *args: Any,
+        name: Optional[str] = None,
     ) -> None:
-
         self.run_task(async_fn, *args, daemon=True, name=name)
 
     def run_daemon_child_service(
-        self, service: ServiceAPI, name: str = None
+        self, service: ServiceAPI, name: Optional[str] = None
     ) -> ManagerAPI:
         return self.run_child_service(service, daemon=True, name=name)
 

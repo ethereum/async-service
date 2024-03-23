@@ -14,15 +14,34 @@ from typing import (
     cast,
 )
 
-from async_generator import asynccontextmanager
+from async_generator import (
+    asynccontextmanager,
+)
 import trio
 import trio_typing
 
-from ._utils import get_task_name
-from .abc import ManagerAPI, ServiceAPI, TaskAPI, TaskWithChildrenAPI
-from .base import BaseChildServiceTask, BaseFunctionTask, BaseManager
-from .exceptions import DaemonTaskExit, LifecycleError
-from .typing import EXC_INFO, AsyncFn
+from ._utils import (
+    get_task_name,
+)
+from .abc import (
+    ManagerAPI,
+    ServiceAPI,
+    TaskAPI,
+    TaskWithChildrenAPI,
+)
+from .base import (
+    BaseChildServiceTask,
+    BaseFunctionTask,
+    BaseManager,
+)
+from .exceptions import (
+    DaemonTaskExit,
+    LifecycleError,
+)
+from .typing import (
+    EXC_INFO,
+    AsyncFn,
+)
 
 
 class FunctionTask(BaseFunctionTask):
@@ -92,7 +111,7 @@ class FunctionTask(BaseFunctionTask):
 
     @property
     def is_done(self) -> bool:
-        return self._done.is_set()
+        return cast(bool, self._done.is_set())
 
     async def wait_done(self) -> None:
         await self._done.wait()
@@ -158,7 +177,8 @@ class TrioManager(BaseManager):
     async def run(self) -> None:
         if self._run_lock.locked():
             raise LifecycleError(
-                "Cannot run a service with the run lock already engaged.  Already started?"
+                "Cannot run a service with the run lock already engaged.  "
+                "Already started?"
             )
         elif self.is_started:
             raise LifecycleError("Cannot run a service which is already started.")
@@ -176,37 +196,39 @@ class TrioManager(BaseManager):
 
                             self.run_task(self._service.run, name="run")
 
-                            # This is hack to get the task stats correct.  We don't want to
-                            # count the `Service.run` method as a task.  This is still
-                            # imperfect as it will still count as a completed task when it
-                            # finishes.
+                            # This is hack to get the task stats correct.  We don't want
+                            # to count the `Service.run` method as a task.  This is
+                            # still imperfect as it will still count as a completed task
+                            # when it finishes.
                             self._total_task_count = 0
 
                             # ***BLOCKING HERE***
-                            # The code flow will block here until the background tasks have
-                            # completed or cancellation occurs.
+                            # The code flow will block here until the background tasks
+                            # have completed or cancellation occurs.
                     except Exception:
-                        # Exceptions from any tasks spawned by our service will be caught by trio
-                        # and raised here, so we store them to report together with any others we
-                        # have already captured.
+                        # Exceptions from any tasks spawned by our service will be
+                        # caught by trio and raised here, so we store them to report
+                        # together with any others we have already captured.
                         self._errors.append(cast(EXC_INFO, sys.exc_info()))
                     finally:
                         system_nursery.cancel_scope.cancel()
 
         finally:
-            # We need this inside a finally because a trio.Cancelled exception may be raised
-            # here and it wouldn't be swalled by the 'except Exception' above.
+            # We need this inside a finally because a trio.Cancelled exception may be
+            # raised here and it wouldn't be swalled by the 'except Exception' above.
             self._finished.set()
             self.logger.debug("%s: finished", self)
 
         # This is outside of the finally block above because we don't want to suppress
         # trio.Cancelled or trio.MultiError exceptions coming directly from trio.
+        # TODO update exception notes
         if self.did_error:
-            raise trio.MultiError(
+            raise ExceptionGroup(
+                "a group of errors occurred",
                 tuple(
                     exc_value.with_traceback(exc_tb)
                     for _, exc_value, exc_tb in self._errors
-                )
+                ),
             )
 
     #
@@ -214,15 +236,15 @@ class TrioManager(BaseManager):
     #
     @property
     def is_started(self) -> bool:
-        return self._started.is_set()
+        return cast(bool, self._started.is_set())
 
     @property
     def is_cancelled(self) -> bool:
-        return self._cancelled.is_set()
+        return cast(bool, self._cancelled.is_set())
 
     @property
     def is_finished(self) -> bool:
-        return self._finished.is_set()
+        return cast(bool, self._finished.is_set())
 
     #
     # Control API
@@ -275,7 +297,7 @@ class TrioManager(BaseManager):
         async_fn: Callable[..., Awaitable[Any]],
         *args: Any,
         daemon: bool = False,
-        name: str = None,
+        name: Optional[str] = None,
     ) -> None:
         task = FunctionTask(
             name=get_task_name(async_fn, name),
@@ -288,7 +310,7 @@ class TrioManager(BaseManager):
         self._common_run_task(task)
 
     def run_child_service(
-        self, service: ServiceAPI, daemon: bool = False, name: str = None
+        self, service: ServiceAPI, daemon: bool = False, name: Optional[str] = None
     ) -> ManagerAPI:
         task = ChildServiceTask(
             name=get_task_name(service, name),
@@ -304,7 +326,7 @@ class TrioManager(BaseManager):
 TFunc = TypeVar("TFunc", bound=Callable[..., Coroutine[Any, Any, Any]])
 
 
-_ChannelPayload = Tuple[Optional[Any], Optional[BaseException]]
+_ChannelPayload = Tuple[Optional[Any], Optional[Exception]]
 
 
 async def _wait_finished(
@@ -319,7 +341,8 @@ async def _wait_finished(
             (
                 None,
                 LifecycleError(
-                    f"Cannot access external API {api_func}.  Service {service} is not running: "
+                    f"Cannot access external API {api_func}.  Service {service} is not "
+                    "running: "
                 ),
             )
         )
@@ -330,7 +353,8 @@ async def _wait_finished(
         (
             None,
             LifecycleError(
-                f"Cannot access external API {api_func}.  Service {service} is not running: "
+                f"Cannot access external API {api_func}.  Service {service} is not "
+                "running: "
             ),
         )
     )
@@ -378,10 +402,7 @@ def external_api(func: TFunc) -> TFunc:
         send_channel, receive_channel = channels
 
         async with trio.open_nursery() as nursery:
-            # mypy's type hints for start_soon break with this invocation.
-            nursery.start_soon(
-                _wait_api_fn, self, func, args, kwargs, send_channel  # type: ignore
-            )
+            nursery.start_soon(_wait_api_fn, self, func, args, kwargs, send_channel)
             nursery.start_soon(_wait_finished, self, func, send_channel)
             result, err = await receive_channel.receive()
             nursery.cancel_scope.cancel()
@@ -393,7 +414,7 @@ def external_api(func: TFunc) -> TFunc:
     return cast(TFunc, inner)
 
 
-@asynccontextmanager
+@asynccontextmanager  # type: ignore
 async def background_trio_service(service: ServiceAPI) -> AsyncIterator[ManagerAPI]:
     """
     Run a service in the background.

@@ -1,13 +1,20 @@
 import os
-from typing import Any, TypeVar
+from typing import (
+    Any,
+    Optional,
+    TypeVar,
+)
 
 TItem = TypeVar("TItem")
 
 
-def get_task_name(value: Any, explicit_name: str = None) -> str:
+def get_task_name(value: Any, explicit_name: Optional[str] = None) -> str:
     # inline import to ensure `_utils` is always importable from the rest of
     # the module.
-    from .abc import ManagerAPI, ServiceAPI  # noqa: F401
+    from .abc import (  # noqa: F401
+        ManagerAPI,
+        ServiceAPI,
+    )
 
     if explicit_name is not None:
         # if an explicit name was provided, just return that.

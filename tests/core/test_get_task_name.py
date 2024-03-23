@@ -1,7 +1,11 @@
 import pytest
 
-from async_service._utils import get_task_name
-from async_service.abc import ServiceAPI
+from async_service._utils import (
+    get_task_name,
+)
+from async_service.abc import (
+    ServiceAPI,
+)
 
 
 async def async_fn_for_test():

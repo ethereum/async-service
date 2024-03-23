@@ -1,7 +1,11 @@
 import pytest
+
 import trio
 
-from async_service import Service, background_trio_service
+from async_service import (
+    Service,
+    background_trio_service,
+)
 
 
 @pytest.mark.trio
